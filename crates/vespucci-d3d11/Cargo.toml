@@ -12,6 +12,7 @@ build = "build.rs"
 
 [dependencies]
 anyhow = "1.0"
+log = "0.4"
 
 [build-dependencies]
-bindgen = "0.71"
+bindgen = "0.73"

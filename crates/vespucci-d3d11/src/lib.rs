@@ -100,6 +100,12 @@ pub const IID_IDXGIADAPTER: GUID = guid(
     0x4ccf,
     [0xbd, 0x14, 0x97, 0x98, 0xe8, 0x53, 0x4d, 0xc0],
 );
+pub const IID_IDXGIFACTORY1: GUID = guid(
+    0x770aae78,
+    0xf26f,
+    0x4dba,
+    [0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87],
+);
 
 /// Environment DXVK-native needs to run headless on lavapipe. Values already
 /// set in the environment win, so a caller can point at another driver.
@@ -184,19 +190,95 @@ pub struct DepthTarget {
     pub dsv: ComPtr<ID3D11DepthStencilView>,
 }
 
+/// Name from a DXGI adapter description (UTF-16, NUL-terminated).
+fn adapter_name(description: &[u16]) -> String {
+    let name: Vec<u16> = description
+        .iter()
+        .copied()
+        .take_while(|&c| c != 0)
+        .collect();
+    String::from_utf16_lossy(&name)
+}
+
+/// The adapter to create the device on. `VESPUCCI_ADAPTER` (an index or a
+/// substring of the name) picks one explicitly; otherwise the hardware adapter
+/// with the most dedicated video memory wins, so a laptop with an iGPU and a
+/// discrete GPU renders on the discrete one. `None` lets D3D11 choose, which is
+/// what happens when enumeration finds nothing (DXVK reports lavapipe as a
+/// software adapter, so headless Linux is unchanged).
+fn pick_adapter() -> Result<Option<ComPtr<IDXGIAdapter1>>> {
+    let mut factory: *mut IDXGIFactory1 = null_mut();
+    let hr = unsafe {
+        CreateDXGIFactory1(
+            &IID_IDXGIFACTORY1,
+            &mut factory as *mut *mut IDXGIFactory1 as *mut *mut c_void,
+        )
+    };
+    let factory = match ComPtr::from_raw(factory) {
+        Some(f) if hr >= 0 => f,
+        _ => return Ok(None),
+    };
+    let want = std::env::var("VESPUCCI_ADAPTER").ok();
+    let mut best: Option<(u64, ComPtr<IDXGIAdapter1>)> = None;
+    let mut index = 0u32;
+    loop {
+        let mut raw: *mut IDXGIAdapter1 = null_mut();
+        let hr = unsafe { com_call!(factory.as_ptr(), EnumAdapters1, index, &mut raw) };
+        let adapter = match ComPtr::from_raw(raw) {
+            Some(a) if hr >= 0 => a,
+            _ => break, // DXGI_ERROR_NOT_FOUND: end of the list
+        };
+        let mut desc: DXGI_ADAPTER_DESC1 = unsafe { core::mem::zeroed() };
+        check(
+            unsafe { com_call!(adapter.as_ptr(), GetDesc1, &mut desc) },
+            "IDXGIAdapter1::GetDesc1",
+        )?;
+        let name = adapter_name(&desc.Description);
+        let software = desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE as u32 != 0;
+        let vram = desc.DedicatedVideoMemory as u64;
+        log::debug!(
+            "adapter {index}: {name}, {} MB dedicated{}",
+            vram >> 20,
+            if software { ", software" } else { "" }
+        );
+        match &want {
+            Some(w) => {
+                let by_index = w.parse::<u32>().is_ok_and(|n| n == index);
+                if by_index || name.to_lowercase().contains(&w.to_lowercase()) {
+                    return Ok(Some(adapter));
+                }
+            }
+            None if !software && best.as_ref().map_or(true, |(v, _)| vram > *v) => {
+                best = Some((vram, adapter));
+            }
+            None => {}
+        }
+        index += 1;
+    }
+    if let Some(w) = want {
+        bail!("VESPUCCI_ADAPTER={w}: no adapter with that index or name (run `doctor --gpu --log debug` to list them)");
+    }
+    Ok(best.map(|(_, a)| a))
+}
+
 impl Device {
-    /// Creates the device on whatever adapter the Vulkan loader offers first
-    /// (lavapipe, given [`setup_env`]).
+    /// Creates the device on the adapter [`pick_adapter`] chooses (on headless
+    /// Linux that is lavapipe, given [`setup_env`]).
     pub fn create() -> Result<Device> {
         setup_env();
+        let adapter = pick_adapter()?;
+        let (adapter_ptr, driver_type) = match &adapter {
+            Some(a) => (a.as_ptr() as *mut IDXGIAdapter, D3D_DRIVER_TYPE_UNKNOWN),
+            None => (null_mut(), D3D_DRIVER_TYPE_HARDWARE),
+        };
         let levels = [D3D_FEATURE_LEVEL_11_0];
         let mut dev: *mut ID3D11Device = null_mut();
         let mut ctx: *mut ID3D11DeviceContext = null_mut();
         let mut got: D3D_FEATURE_LEVEL = 0;
         let hr = unsafe {
             D3D11CreateDevice(
-                null_mut(),
-                D3D_DRIVER_TYPE_HARDWARE,
+                adapter_ptr,
+                driver_type,
                 null_mut(),
                 0,
                 levels.as_ptr(),
@@ -229,13 +311,7 @@ impl Device {
             unsafe { com_call!(adapter.as_ptr(), GetDesc, &mut desc) },
             "IDXGIAdapter::GetDesc",
         )?;
-        let name: Vec<u16> = desc
-            .Description
-            .iter()
-            .take_while(|&&c| c != 0)
-            .map(|&c| c as u16)
-            .collect();
-        Ok(String::from_utf16_lossy(&name))
+        Ok(adapter_name(&desc.Description))
     }
 
     pub fn create_texture2d(

@@ -6,10 +6,10 @@ Vespucci is a Rust workspace. It renders through Direct3D 11: natively on Window
 
 | | Linux (headless) | Windows |
 |---|---|---|
-| Rust | stable (1.75 or newer; developed on 1.95) | same, cross-compiled from Linux with mingw-w64 |
+| Rust | stable (1.75 or newer; developed on 1.95) | same, GNU host toolchain (`stable-x86_64-pc-windows-gnu`), or cross-compiled from Linux with mingw-w64 |
 | Graphics | Vulkan 1.3 driver. lavapipe (`mesa-vulkan-drivers`) works on any CPU; this is what the project is developed on | Direct3D 11 (any GPU) |
 | DXVK-native | v3.1.1 built with the SDL3 backend (script below) | not needed |
-| bindgen | `clang` + `libclang-dev` (generates the D3D11 FFI at build time) | same, on the build machine |
+| bindgen | `clang` + `libclang-dev` (generates the D3D11 FFI at build time) | MSYS2's `mingw-w64-ucrt-x86_64-clang` (libclang) and the UCRT64 toolchain headers; bindgen 0.73 or newer (0.71 emits every COM interface as an opaque struct against mingw-w64 14 / libclang 22) |
 | Helper shaders | `vkd3d-compiler` (only to rebuild `shaders/*.hlsl`; the compiled DXBC is committed) | — |
 | Game | GTA V **Legacy** PC build (Steam/Rockstar/Epic), any version with NG-encrypted archives. Developed against 1.0.3889.0 | same |
 | Memory | 4 GB RAM is enough for 1280x720 renders (peak RSS ~0.8 GB) | — |
@@ -93,21 +93,30 @@ On Windows the same binary uses the system `d3d11.dll`/`dxgi.dll`, so DXVK is no
 
 ### Developing natively on Windows
 
-The build needs the GNU toolchain (the D3D11 bindings are generated from mingw-w64's headers; MSVC is not supported) and LLVM for bindgen. This is the intended setup for the desktop work (M6); it has not been exercised yet, so report what breaks (issue #23).
+The build needs the GNU toolchain (the D3D11 bindings are generated from mingw-w64's headers; MSVC is not supported) and a libclang for bindgen. This is the setup the desktop work (M6) is done on; it was verified on 2026-10-02 (Windows 11, MSYS2 2026-06-11, Rust 1.99 GNU, RTX 3050 + AMD iGPU).
 
-1. Install [MSYS2](https://www.msys2.org/) and, in its UCRT64 shell: `pacman -S mingw-w64-ucrt-x86_64-toolchain`. This provides `gcc`, `x86_64-w64-mingw32-gcc` and the headers in `C:\msys64\ucrt64\include`, which `build.rs` finds by itself.
-2. Install [LLVM](https://github.com/llvm/llvm-project/releases) (or `winget install LLVM.LLVM`) and set `LIBCLANG_PATH` to its `bin` directory.
-3. Install Rust with [rustup](https://rustup.rs/) and select the GNU host: `rustup default stable-x86_64-pc-windows-gnu`.
-4. Put `C:\msys64\ucrt64\bin` on `PATH` (for the linker named in `.cargo/config.toml`), then in a normal PowerShell:
+1. Install [MSYS2](https://www.msys2.org/) (`winget install MSYS2.MSYS2`) and, in its UCRT64 shell: `pacman -S mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt-x86_64-clang`. The toolchain provides `gcc`, `x86_64-w64-mingw32-gcc` and the headers in `C:\msys64\ucrt64\include`, which `build.rs` finds by itself; the clang package provides `libclang.dll` for bindgen (the official LLVM installer works too; its `libclang` is the same major version).
+2. Install Rust with [rustup](https://rustup.rs/) and add the GNU host toolchain: `rustup toolchain install stable-x86_64-pc-windows-gnu` and either `rustup default stable-x86_64-pc-windows-gnu` or, to leave other projects on MSVC, `rustup override set stable-x86_64-pc-windows-gnu` inside the checkout.
+3. Put `C:\msys64\ucrt64\bin` on `PATH` (for the linker named in `.cargo/config.toml`) and point bindgen at libclang, then build:
 
 ```powershell
-$env:GTAV_PATH = "C:\Program Files\Rockstar Games\Grand Theft Auto V"
+$env:PATH = "C:\msys64\ucrt64\bin;$env:PATH"
+$env:LIBCLANG_PATH = "C:\msys64\ucrt64\bin"
+$env:GTAV_PATH = "C:\Program Files (x86)\Steam\steamapps\common\Grand Theft Auto V"
 cargo build --release
 .\target\release\vespucci.exe doctor --gpu --out test.png
 .\target\release\vespucci.exe render --pos=-1280,-1450,4 --look=-1200,-1500,4 --out beach.png
 ```
 
-If bindgen cannot find `d3d11.h`, set `VESPUCCI_D3D_INCLUDE` to the directory that holds it (`;`-separated if several). The helper shaders under `shaders/` are committed as DXBC, so `vkd3d-compiler` is not needed on Windows. `scripts/golden.sh` and `scripts/setup-linux.sh` are Linux-only; on Windows run the equivalent `vespucci compare` commands by hand or from Git Bash.
+Notes from that first run:
+
+- **bindgen must be 0.73 or newer.** With mingw-w64 14 headers and libclang 22, bindgen 0.71 generates every COM interface (`ID3D11Device`, `IUnknown`, …) as an opaque `{ _address: u8 }` struct, so `com_call!` fails with "no field `lpVtbl`". `Cargo.lock` pins 0.73; do not downgrade.
+- **GPU choice.** D3D11's default adapter on a laptop is often the iGPU. The device is created on the hardware adapter with the most dedicated video memory; `VESPUCCI_ADAPTER=<index or name substring>` overrides, and `doctor --gpu --log debug` lists what DXGI enumerates.
+- **Goldens.** `tests/golden/*.png` are lavapipe renders. On hardware the bag goldens match (59-60 dB) but the barrier (thin cutout geometry) lands at 35 dB and the world scenes at 31-34 dB, because anisotropic filtering, mip selection and alpha-tested edges differ between a software and a hardware rasteriser. `WORLD_PSNR=30 MODEL_PSNR=30 scripts/golden.sh` from Git Bash passes; a separate hardware golden set is not kept.
+- `cargo test --release` passes (with `VESPUCCI_GAME` set, the game-file tests too). `rustfmt` is a separate component on the GNU toolchain: `rustup component add rustfmt --toolchain stable-x86_64-pc-windows-gnu`.
+- Timing on the RTX 3050: device 0.05-0.8 s, beach render 1.5 s, whole command 3.3 s; peak working set 526 MB (reported as `peak_rss_mb`, measured with `GetProcessMemoryInfo`).
+
+If bindgen cannot find `d3d11.h`, set `VESPUCCI_D3D_INCLUDE` to the directory that holds it (`;`-separated if several). The helper shaders under `shaders/` are committed as DXBC, so `vkd3d-compiler` is not needed on Windows. `scripts/setup-linux.sh` is Linux-only.
 
 ## Troubleshooting
 

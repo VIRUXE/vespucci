@@ -20,12 +20,48 @@ pub fn open(game: &Path) -> Result<GameFs> {
     Ok(fs)
 }
 
-/// Peak resident set size of this process in MB (Linux only).
+/// Peak resident set size of this process in MB.
+#[cfg(not(windows))]
 pub fn peak_rss() -> Option<u64> {
     let status = std::fs::read_to_string("/proc/self/status").ok()?;
     let line = status.lines().find(|l| l.starts_with("VmHWM:"))?;
     let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
     Some(kb / 1024)
+}
+
+/// Peak working set, which is what Task Manager calls memory, in MB.
+#[cfg(windows)]
+pub fn peak_rss() -> Option<u64> {
+    // PROCESS_MEMORY_COUNTERS from psapi.h; declared here to avoid a crate for one call.
+    #[repr(C)]
+    #[derive(Default)]
+    struct MemoryCounters {
+        cb: u32,
+        page_fault_count: u32,
+        peak_working_set_size: usize,
+        working_set_size: usize,
+        quota_peak_paged_pool_usage: usize,
+        quota_paged_pool_usage: usize,
+        quota_peak_non_paged_pool_usage: usize,
+        quota_non_paged_pool_usage: usize,
+        pagefile_usage: usize,
+        peak_pagefile_usage: usize,
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCurrentProcess() -> *mut core::ffi::c_void;
+        fn K32GetProcessMemoryInfo(
+            process: *mut core::ffi::c_void,
+            counters: *mut MemoryCounters,
+            cb: u32,
+        ) -> i32;
+    }
+    let mut counters = MemoryCounters {
+        cb: std::mem::size_of::<MemoryCounters>() as u32,
+        ..Default::default()
+    };
+    let ok = unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb) };
+    (ok != 0).then(|| counters.peak_working_set_size as u64 >> 20)
 }
 
 /// Lists files whose full path starts with `prefix` (all files when empty).

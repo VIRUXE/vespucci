@@ -146,5 +146,6 @@ Reads one of the game's `.fxc` containers (by name, e.g. `normal_spec`; the curr
 | `GTAV_PATH` | Default for `--game`. |
 | `VESPUCCI_LOG` | Default for `--log`. |
 | `VESPUCCI_GAME` | Enables the game-file tests in `cargo test`. |
+| `VESPUCCI_ADAPTER` | GPU to render on: an adapter index or a substring of its name (`doctor --gpu --log debug` lists them). Default: the hardware adapter with the most dedicated video memory, so a laptop picks its discrete GPU over the iGPU. |
 | `DXVK_*`, `VK_DRIVER_FILES`, `SDL_VIDEO_DRIVER`, `MESA_SHADER_CACHE_DIR`, `LP_NUM_THREADS` | Set by the binary for headless use unless already exported; see [building.md](building.md). |
 | `VESPUCCI_SKIP`, `VESPUCCI_SKIP_SHADER`, `VESPUCCI_SET_VAR`, `VESPUCCI_SET_GLOBAL`, `VESPUCCI_ENGINE_TEX`, `VESPUCCI_MINLOD`, `VESPUCCI_MAXLOD`, `VESPUCCI_PROBE`, `VESPUCCI_TRACE_ENTITY`, `VESPUCCI_ALL_MODELS`, `VESPUCCI_ONES`, `VESPUCCI_ONES_VAR` | Debug switches, see [debugging.md](debugging.md). |

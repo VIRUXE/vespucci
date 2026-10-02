@@ -73,15 +73,14 @@ The first run derives the archive keys from your executable (cached afterwards) 
 
 ### Windows
 
-Cross-compile from Linux (the setup script installs mingw-w64):
+Build natively with the MSYS2 UCRT64 toolchain and the GNU Rust host (setup in [docs/building.md](docs/building.md)), or cross-compile from Linux (the setup script installs mingw-w64):
 
-```sh
-cargo build --release --target x86_64-pc-windows-gnu
-# target/x86_64-pc-windows-gnu/release/vespucci.exe
-vespucci.exe doctor --gpu --game "C:\Program Files\Rockstar Games\Grand Theft Auto V"
+```powershell
+cargo build --release                                  # native; or from Linux: --target x86_64-pc-windows-gnu
+.\target\release\vespucci.exe doctor --gpu --game "C:\Program Files (x86)\Steam\steamapps\common\Grand Theft Auto V"
 ```
 
-The Windows binary uses the system D3D11 directly. See [docs/building.md](docs/building.md) for details and troubleshooting.
+The Windows binary uses the system D3D11 directly and renders on the GPU with the most video memory (`VESPUCCI_ADAPTER` overrides). See [docs/building.md](docs/building.md) for details and troubleshooting.
 
 ## Using it
 

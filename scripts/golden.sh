@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Renders the golden models and compares them with the frozen images (PSNR >= 40 dB).
 # Usage: scripts/golden.sh [--update]     (needs GTAV_PATH and a release build)
+# The goldens are lavapipe renders. A hardware GPU filters differently and lands
+# around 31-35 dB on the world scenes and thin cutout props; run with WORLD_PSNR=30 MODEL_PSNR=30 there (Git Bash works).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 V=./target/release/vespucci
+WORLD_PSNR=${WORLD_PSNR:-35}
+MODEL_PSNR=${MODEL_PSNR:-40}
 OUT=tests/out/golden; mkdir -p "$OUT"
 render() { $V --log warn render-model "$1" --technique "$2" --out "$3" >/dev/null; }
 declare -A CASES=(
@@ -26,11 +30,11 @@ check() { # name min_psnr
 for name in "${!CASES[@]}"; do
   read -r model technique <<<"${CASES[$name]}"
   render "$model" "$technique" "$OUT/$name.png"
-  check "$name" 40
+  check "$name" "$MODEL_PSNR"
 done
 for name in "${!WORLD[@]}"; do
   read -r pos look <<<"${WORLD[$name]}"
   $V --log warn render --pos="$pos" --look="$look" --radius 300 --size 640x360 --lighting basic --out "$OUT/$name.png" >/dev/null
-  check "$name" 35
+  check "$name" "$WORLD_PSNR"
 done
 exit $fail

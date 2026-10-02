@@ -8,7 +8,7 @@ Newest first. The sections are dated and kept as written, so this file doubles a
 - **Next: M5** — a game-lit frame matched against RenderDoc captures of the real game (sky, time cycle, deferred lighting, post-processing). Captures wanted: A Vespucci Beach 18:30 EXTRASUNNY, B Legion Square 12:00 CLEAR, C sky, D Del Perro pier 21:30 CLEAR, E overcast — 1280×720, MSAA off, player hidden, time frozen.
 - Then **M6**: the editor itself (Dear ImGui shell on Windows, MCP server on both platforms).
 - Known rendering issues: downtown glass/reflective buildings render dark (forward techniques with stand-in reflections); distant SLOD pieces can appear to float when the LOD under them is outside `--radius` or in a different distance band; no sky, water, interiors or vehicles yet. Details in [rendering.md](rendering.md).
-- The Windows build compiles (`x86_64-pc-windows-gnu`) but `vespucci.exe doctor --gpu` has not been run on a Windows machine yet.
+- **Native Windows verified (2026-10-02):** `doctor --gpu`, `render-model` and `render` run on the PC (RTX 3050, feature level 11.0), built natively with the MSYS2 UCRT64 toolchain; see [building.md](building.md). Development now happens there, with the Steam install.
 
 ## Development environment (where the numbers below come from)
 
@@ -27,6 +27,19 @@ Newest first. The sections are dated and kept as written, so this file doubles a
 - Index: 159,367 archetypes from 2,759 ytyps in 0.9 s; 11,082 ymaps (10,821 from `*_cache_y.dat`) in 0.3 s.
 - Map sets: story mode 4,602 ymaps, online 5,425. Beach probe (story mode, 300 m): 171 maps, 21,380 entities, 3,702 models, 499 MB of model data referenced.
 - Tests: `VESPUCCI_GAME=… cargo test --release` — game crate 2, world crate 3, fxc 1 (+1 with `VESPUCCI_FXC_DIR`); goldens in `scripts/golden.sh`.
+
+## Update 2026-10-02 (night) — native Windows build on the PC (issue #23)
+
+Built and run on the Windows PC (Windows 11, Steam GTA V Legacy 1.0.3889.0 at `C:\Program Files (x86)\Steam\steamapps\common\Grand Theft Auto V`, AMD Radeon iGPU + NVIDIA RTX 3050 Laptop, Rust 1.99 GNU, MSYS2 mingw-w64 14 / gcc 15, libclang 22).
+
+What broke and what changed:
+
+- **bindgen 0.71 produced opaque COM interfaces** (`pub struct ID3D11Device { _address: u8 }`, 46 "no field `lpVtbl`" errors) against MSYS2's headers with libclang 22; every `Vtbl` struct was fine, only the interface structs themselves lost their definition. Reproduced with a three-line header; bindgen 0.73 is correct. `vespucci-d3d11` now requires 0.73 (`prettyplease` updated with it for a single `syn`).
+- **Adapter choice.** `D3D11CreateDevice(null, HARDWARE)` took adapter 0, the AMD iGPU. `Device::create` now enumerates with `IDXGIFactory1::EnumAdapters1` and picks the non-software adapter with the most dedicated video memory (the RTX), or whatever `VESPUCCI_ADAPTER` names. Headless Linux is unchanged: DXVK flags lavapipe as software, so the list yields nothing and the old call is made.
+- **`peak_rss_mb` was 0** on Windows (`/proc/self/status`); it now reads the peak working set through `K32GetProcessMemoryInfo`, no new crate.
+- Numbers on the RTX 3050: `doctor --gpu` device 0.07 s, draw 0.003 s; beach 640x360: stream 0.02 s, render 1.5 s, 3.3 s total, 526 MB peak; Legion Square 3.1 s, 492 MB. Keys recovered from the Steam exe and cached under `%USERPROFILE%\.cache\vespucci\keys\`.
+- Goldens against the lavapipe images: `bag_unlit` 59.0 dB, `bag_lit` 60.4 dB, `barrier_lit` 35.0 dB, `world_beach` 31.5 dB, `world_legion` 33.9 dB. The renders are visually identical; the gap is hardware texture filtering and alpha-tested edges. `scripts/golden.sh` takes `WORLD_PSNR`/`MODEL_PSNR` for this (30 on a GPU) and runs from Git Bash.
+- `cargo test --release` with `VESPUCCI_GAME` set: all pass (game 2, world 3, fxc 2).
 
 ## Update 2026-10-02 — M4 done (headless): streamed world
 
