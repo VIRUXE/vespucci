@@ -28,11 +28,23 @@ fn linux_include_dirs() -> Vec<PathBuf> {
 
 fn windows_include_dirs() -> Vec<PathBuf> {
     if let Ok(v) = env::var("VESPUCCI_D3D_INCLUDE") {
-        return v.split(':').map(PathBuf::from).collect();
+        // `;` on a Windows host, `:` elsewhere.
+        let sep = if cfg!(windows) { ';' } else { ':' };
+        return v.split(sep).map(PathBuf::from).collect();
     }
-    let mingw = PathBuf::from("/usr/x86_64-w64-mingw32/include");
-    if mingw.join("d3d11.h").exists() {
-        return vec![mingw];
+    // Cross-compiling from Linux: the distro's mingw-w64 headers.
+    // Native Windows: MSYS2's mingw-w64 headers (UCRT64 or MINGW64 environment).
+    let candidates = [
+        "/usr/x86_64-w64-mingw32/include",
+        "C:/msys64/ucrt64/include",
+        "C:/msys64/mingw64/include",
+        "C:/msys64/ucrt64/x86_64-w64-mingw32/include",
+    ];
+    for c in candidates {
+        let dir = PathBuf::from(c);
+        if dir.join("d3d11.h").exists() {
+            return vec![dir];
+        }
     }
     vec![]
 }

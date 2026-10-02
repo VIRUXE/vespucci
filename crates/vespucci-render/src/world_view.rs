@@ -13,9 +13,12 @@ use rage_formats::{parse_drawables, parse_ytd, Drawable, DrawableKind, LodLevel,
 use std::collections::HashMap;
 use std::rc::Rc;
 use vespucci_d3d11::ffi::*;
-use vespucci_d3d11::{ComPtr, Device};
+use vespucci_d3d11::{ComPtr, Device, Stage};
 use vespucci_game::GameFs;
 use vespucci_world::{ArchetypeDb, Instance, TxdParents};
+
+/// Pixel shader that writes a draw id (picking pass); pairs with any game vertex shader.
+const ID_PS: &[u8] = include_bytes!("../../../shaders/id/id.ps.dxbc");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Lighting {
@@ -36,6 +39,10 @@ pub struct WorldViewOptions {
     /// Linear sky colour behind everything (there is no sky dome yet).
     pub background: [f32; 4],
     pub exposure: f32,
+    /// Report the model and material drawn at this pixel (runs the picking pass).
+    pub pick: Option<(u32, u32)>,
+    /// Produce `WorldReport::id_image`, one colour per draw (runs the picking pass).
+    pub id_map: bool,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -52,6 +59,8 @@ pub struct WorldReport {
     pub textures_bound: usize,
     /// Engine-supplied inputs (reflection, fog rays) given a flat stand-in.
     pub textures_engine: usize,
+    /// RGBA8, one colour per draw, black where nothing was drawn (`WorldViewOptions::id_map`).
+    pub id_image: Option<Vec<u8>>,
 }
 
 struct GpuGeo {
@@ -374,6 +383,13 @@ impl Ctx<'_> {
 }
 
 /// Drawable LOD for a distance: the first level whose threshold the distance is under.
+/// `VAR=x,y` from the environment, as a pixel position.
+fn parse_pixel(var: &str) -> Option<(usize, usize)> {
+    let p = std::env::var(var).ok()?;
+    let (a, b) = p.split_once(',')?;
+    Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
+}
+
 fn pick_lod(d: &Drawable, distance: f32) -> Option<u8> {
     for (i, &threshold) in d.lod_distances.iter().enumerate() {
         if distance < threshold
@@ -405,6 +421,8 @@ fn pick_lod(d: &Drawable, distance: f32) -> Option<u8> {
 struct Draw {
     model: Rc<std::cell::RefCell<GpuModel>>,
     lod: Rc<GpuLod>,
+    /// Model file name, for the pick diagnostic.
+    name: String,
     world: Mat4,
     distance: f32,
 }
@@ -479,6 +497,9 @@ pub fn render_world(
                 .collect()
         })
         .unwrap_or_default();
+
+    // Picking: a second pass writes draw ids, for `pick` and `id_map`.
+    let want_ids = opts.pick.is_some() || opts.id_map;
 
     // Decide what to draw: frustum-cull by the archetype's box, load models within budget.
     let mut draws: Vec<Draw> = Vec::new();
@@ -556,6 +577,14 @@ pub fn render_world(
         draws.push(Draw {
             model,
             lod,
+            name: if want_ids {
+                let (ext, hash) = a.model_file();
+                fs.by_hash(ext, hash)
+                    .map(|l| l.name.clone())
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            },
             world,
             distance: inst.distance,
         });
@@ -589,6 +618,7 @@ pub fn render_world(
         opts.sun_sign,
         false,
     );
+    globals_preview::set_frame(&mut ctx.globals, cam, &view, &proj, opts.height, false);
     ctx.globals.upload_all(dev)?;
     let dummy = dev.create_buffer(
         &[0u8; DUMMY_BYTES],
@@ -603,7 +633,7 @@ pub fn render_world(
 
     let mut current_pass = None;
     let mut last_draw = usize::MAX;
-    for (pass, _, di, gi) in items {
+    for &(pass, _, di, gi) in &items {
         if current_pass != Some(pass) {
             current_pass = Some(pass);
             match pass {
@@ -638,15 +668,122 @@ pub fn render_world(
         dev.draw_indexed(g.index_count);
         ctx.report.draws += 1;
     }
+    // Picking pass: the same draws again, with a pixel shader that writes the draw id.
+    if want_ids {
+        let rt_id = dev.create_render_target(opts.width, opts.height, DXGI_FORMAT_R32_UINT)?;
+        let id_ps = dev.create_pixel_shader(ID_PS)?;
+        let id_cb =
+            dev.create_buffer(&[0u8; 16], D3D11_BIND_CONSTANT_BUFFER, D3D11_USAGE_DYNAMIC)?;
+        dev.clear(&rt_id, [0.0; 4]);
+        dev.bind_targets(&rt_id, Some(&depth));
+        dev.set_blend_state(&blend_off);
+        let mut current_pass = None;
+        let mut last_draw = usize::MAX;
+        for &(pass, _, di, gi) in &items {
+            if current_pass != Some(pass) {
+                current_pass = Some(pass);
+                // Alpha draws wrote no depth; everything else must land on what it wrote.
+                dev.set_depth_state(match pass {
+                    Pass::Alpha => &depth_test,
+                    _ => &depth_test_eq,
+                });
+            }
+            let d = &draws[di];
+            if last_draw != di {
+                globals_preview::set_world(&mut ctx.globals, d.world, &view, &proj, false);
+                last_draw = di;
+            }
+            let mut model = d.model.borrow_mut();
+            let g = &d.lod.geos[gi];
+            let Some(material) = model.materials[g.material].as_mut() else {
+                continue;
+            };
+            dev.set_pipeline(&g.layout, &material.vs.shader, &id_ps);
+            material.bind(dev, &mut ctx.globals, &sampler, &comparison)?;
+            let id = ((di as u32 + 1) << 8) | (gi as u32).min(255);
+            let mut bytes = [0u8; 16];
+            bytes[..4].copy_from_slice(&id.to_le_bytes());
+            dev.update_buffer(&id_cb, &bytes)?;
+            dev.set_constant_buffer(Stage::Pixel, 0, &id_cb);
+            dev.set_vertex_buffer(0, &g.vb, g.stride);
+            dev.set_index_buffer(&g.ib, g.index_format);
+            dev.draw_indexed(g.index_count);
+        }
+        let raw = dev.read_back(&rt_id.texture, 4)?;
+        let ids: Vec<u32> = raw
+            .chunks_exact(4)
+            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        if let Some((px, py)) = opts.pick {
+            let id = ids
+                .get(py as usize * opts.width as usize + px as usize)
+                .copied()
+                .unwrap_or(0);
+            if id == 0 {
+                log::info!("pick ({px},{py}): nothing drawn there");
+            } else {
+                let (di, gi) = ((id >> 8) as usize - 1, (id & 255) as usize);
+                let d = &draws[di];
+                let model = d.model.borrow();
+                let g = &d.lod.geos[gi];
+                log::info!(
+                    "pick ({px},{py}): {} at {:.0} m, geometry {gi}, material {}",
+                    d.name,
+                    d.distance,
+                    g.material
+                );
+                if let Some(m) = model.materials[g.material].as_ref() {
+                    let tex: Vec<String> = m
+                        .textures
+                        .iter()
+                        .map(|t| {
+                            format!(
+                                "{}={}{}",
+                                t.name,
+                                t.texture_name.as_deref().unwrap_or("-"),
+                                if t.found {
+                                    ""
+                                } else if t.engine {
+                                    "(engine)"
+                                } else {
+                                    "(MISSING)"
+                                }
+                            )
+                        })
+                        .collect();
+                    log::info!(
+                        "  {} / {} bucket={} unmatched={:?}",
+                        m.shader_name,
+                        m.technique,
+                        m.bucket,
+                        m.params_unmatched
+                    );
+                    log::info!("  {}", tex.join(" "));
+                }
+            }
+        }
+        if opts.id_map {
+            let mut rgba = Vec::with_capacity(ids.len() * 4);
+            for &id in &ids {
+                if id == 0 {
+                    rgba.extend_from_slice(&[0, 0, 0, 255]);
+                } else {
+                    let h = (id >> 8).wrapping_mul(2_654_435_761);
+                    rgba.extend_from_slice(&[
+                        (h >> 16) as u8 | 0x30,
+                        (h >> 8) as u8 | 0x30,
+                        h as u8 | 0x30,
+                        255,
+                    ]);
+                }
+            }
+            ctx.report.id_image = Some(rgba);
+        }
+    }
     let hdr = dev.read_back(&rt.texture, 8)?;
     // Debug: VESPUCCI_PROBE=x,y prints the linear HDR value of one pixel.
-    if let Ok(p) = std::env::var("VESPUCCI_PROBE") {
-        if let Some((x, y)) = p.split_once(',').and_then(|(a, b)| {
-            Some((
-                a.trim().parse::<usize>().ok()?,
-                b.trim().parse::<usize>().ok()?,
-            ))
-        }) {
+    if let Some((x, y)) = parse_pixel("VESPUCCI_PROBE") {
+        {
             let at = (y * opts.width as usize + x) * 8;
             if at + 8 <= hdr.len() {
                 let v: Vec<f32> = (0..4)

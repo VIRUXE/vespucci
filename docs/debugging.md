@@ -15,7 +15,7 @@ All are read at run time by the release binary; none change the output unless se
 | `VESPUCCI_ENGINE_TEX=r,g,b` | both | Colour (0–255) of the stand-in bound to engine-supplied textures. |
 | `VESPUCCI_MINLOD=n`, `VESPUCCI_MAXLOD=n` | both | Clamp every sampler to a mip range (`0`/`0` = top level only). |
 | `VESPUCCI_PROBE=x,y` | `render` | Print the linear HDR value of one pixel before tonemapping. |
-| `VESPUCCI_TRACE_ENTITY=substring` | `render`, `probe` | Log the LOD decision (distance, lodDist, childLodDist, children, level, parent, map) of every entity whose model name matches. |
+| `VESPUCCI_TRACE_ENTITY=substring` | `render` | Log the LOD decision (distance, lodDist with `(arch)` when taken from the archetype, childLodDist, children, level, parent, tint, map) of every entity whose model name matches; empty = every entity. |
 | `VESPUCCI_ALL_MODELS=1` | `render-model` | Also draw models with render-mask bit 0 clear (shadow proxies). |
 | `VESPUCCI_ONES=<cbuffer>\|material` | `render-model` | Fill a whole global cbuffer (or all material cbuffers) with 1.0. |
 | `VESPUCCI_ONES_VAR=cb:var[:index]` | `render-model` | Set one global variable (or one element) to 1.0, the rest of it to 0. |
@@ -23,6 +23,8 @@ All are read at run time by the release binary; none change the output unless se
 Log levels: `--log debug` explains every skipped map (script flags, time variants), model (missing file, no drawables), material (no technique) and texture (name, binding, shader, archetype). `--log trace` prints one line per drawn instance: model file, distance, LOD level and distance, bounding-box size, map, entity and archetype flags, time flags, and the applied material parameters with their values.
 
 ## Workflows
+
+**What is this pixel?** `render … --pick X,Y` names the model, geometry, material, technique, bucket and every texture binding drawn at that pixel (exact: a second pass renders draw ids). `--id-map ids.png` colours the whole frame by draw, which makes stray geometry obvious. (This identified the pink "pole" as a tinted ladder, the magenta bar as a tree-LOD billboard and the cyan panel as a telegraph pole's cutout LOD.)
 
 **Something draws where it should not.** `--log trace`, filter by distance and size to find candidates, confirm with `VESPUCCI_SKIP`. Then `VESPUCCI_TRACE_ENTITY=<name>` shows why the LOD rule kept it. (This found the 6.7 km reflection-proxy box drawn over Vespucci Beach: a script-only map.)
 

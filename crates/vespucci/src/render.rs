@@ -40,6 +40,8 @@ pub fn run(
     exposure: f32,
     time: &str,
     script_maps: bool,
+    pick: Option<(u32, u32)>,
+    id_map: Option<&Path>,
     out: &Path,
     json: bool,
 ) -> Result<()> {
@@ -98,6 +100,8 @@ pub fn run(
         sun_sign: if flip_sun { -1.0 } else { 1.0 },
         background: [0.28, 0.48, 0.9, 1.0],
         exposure,
+        pick,
+        id_map: id_map.is_some(),
     };
 
     let dev = crate::timed("create device", Device::create)?;
@@ -115,6 +119,9 @@ pub fn run(
         )
     })?;
     crate::write_png(out, size.0, size.1, &pixels)?;
+    if let (Some(path), Some(img)) = (id_map, &report.id_image) {
+        crate::write_png(path, size.0, size.1, img)?;
+    }
     let rss = crate::files::peak_rss().unwrap_or(0);
     if json {
         println!(

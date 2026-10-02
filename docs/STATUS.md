@@ -99,3 +99,21 @@ M4 streamed world (`render --lighting basic`, Vespucci Beach, RSS < 3.5 GB) → 
 - Vertex declarations with `Unknown` semantics/types are skipped by `layout.rs`; watch the skipped-geometry count.
 - Memory: lavapipe keeps GPU resources in RAM; M4 must budget (~0.5 GB geometry, 0.8 GB textures, mip trimming by distance).
 - (Historical) first commit `f7de87e` holds M0–M3; M4 committed after it.
+
+## 2026-10-02 (evening): missing objects and pink materials in the README renders
+
+Committed (builds on both targets, no-GPU tests pass, world goldens re-frozen; verified on the beach-town camera `--pos=-1120,-1620,22 --look=-1280,-1450,4`). Development continues on the Windows PC from here (see building.md, "Developing natively on Windows").
+
+- **Fixed: map entities with `lodDist` -1 were never drawn.** Half of all entities (16,184 of 32,585 here) store -1, meaning "use the archetype's lodDist". `streamer.rs` now falls back to the archetype; `StreamStats.lod_dist_from_archetype` counts them. Instances 1,328 -> 2,136 (parking meters, bins, lamps, fences, beach props appear).
+- **Fixed: power lines.** `cable.fxc` projects with its own `gViewProj` and sizes with `gCableParams` (x = pixels per metre at 1 m = 0.5*height/tan(fov/2)); both live in the material cbuffer, so `Material` now has `frame_vars` filled from `Globals.frame` at bind time (`globals_preview::set_frame`). Cables render.
+- **New diagnostic: `render --pick X,Y` and `--id-map FILE`.** A second pass draws every item with `shaders/id/id.hlsl` (writes the draw id to an R32_UINT target); `--pick` prints the exact model, geometry, material and textures under a pixel, `--id-map` writes one colour per draw.
+
+Diagnosed, not yet fixed (each filed as an issue):
+
+1. **Pink ladder/railings (`vb_30_ladder_05`, tint shaders).** Palette textures are 256x4; the VS samples at (COLOR0.b, tintPaletteSelector.x). Column 0 is the real colour, the rest is pink filler, and our anisotropic WRAP sampler blends column 0 with column 255 -> pink. Fix: point + clamp sampler for `TintPaletteSampler`, and set `tintPaletteSelector.x = (entity tint + 0.5) / rows` per draw (needs palette height from the texture cache).
+2. **Holes in the ground and vanished prop clusters (the "floating grey boxes").** A LOD entity is hidden whenever `d < childLodDist`, but its HD children are often already beyond their own lodDist (childLodDist 299 vs archetype lodDist 60-100), so nothing draws. Implement the recursive rule: an entity draws iff `d < lodDist` and not (`numChildren > 0 && d < childLodDist && any child draws`); children resolve through `parent_index` (+ `flags` bit 3 = parent ymap). Open question: whether a -1 lodDist on an HD child should instead inherit the parent's childLodDist (check a cluster's children against its childLodDist once children lists exist).
+3. **Cyan billboard on `prop_telegraph_02b` (and other cutout LODs).** `PS_Textured_Zero_CutOut` discards when `gAlphaRefVec0.x >= alpha`; `more_stuff.gAlphaRefVec0/1` are still 0 so nothing is discarded. Set them (0.5 to start) in `globals_preview`.
+4. **75 NaN pixels (magenta bar) from `trees_lod` SLOD billboards.** The foliage PS divides by the Jacobian of the shadow-map coordinates (`dsx/dsy`); our dummy CSM transform is axis-aligned, so a camera-facing quad gets a zero determinant. Give the dummy CSM mapping a rotation with no zero entries (keep the 1e-3 scale).
+5. **White SLOD buildings (`vb_27_slod_children`).** The texture `vb1_27_build_lod` in `vb_27_lod.ytd` is a normal brown facade atlas, so the white comes from shading/sampling, not the texture. Next step: `--pick` the face, then bisect with `VESPUCCI_SET_VAR`/`VESPUCCI_ONES`.
+6. Glued texture names such as `prop_telegraph_02_lodprop_traffic_01_lod_a` are the game's own names (present in the .ytd), not a parser bug.
+7. The entity trace now prints the tint value; adding the entity index would make parent/child checks easier for item 2.

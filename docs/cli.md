@@ -84,6 +84,8 @@ vespucci render --pos X,Y,Z --look X,Y,Z [options] --out frame.png
 | `--mip-skip a,b,c` | 0,1,2 | Mip levels dropped for models nearer than 100 m, nearer than 500 m, and beyond. |
 | `--exposure F` | 1 | Scale applied to the linear HDR frame before the display curve. |
 | `--flip-sun` | off | Flip the preview sun direction. |
+| `--pick X,Y` | — | Print the model, geometry, material and textures drawn at that pixel (a second pass writes draw ids). |
+| `--id-map FILE` | — | Also write a PNG with one colour per draw, black where nothing was drawn (same picking pass). |
 | `--json` | off | Print the report as one JSON object instead of text. |
 
 The report gives instances kept and culled, models loaded, draw calls, bytes of geometry and textures, textures bound / missing / engine-supplied, peak RSS and wall time. Exit tests and examples:

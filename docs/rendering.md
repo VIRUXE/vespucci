@@ -43,7 +43,7 @@ Opaque draws are grouped by model so consecutive draws share shaders, layouts an
 
 ## What the output is and is not
 
-Done: geometry placement, LOD selection, materials and textures as the game binds them, alpha test/blend/decal ordering, tint palettes, detail maps, time-of-day object variants, script-map filtering.
+Done: geometry placement, LOD selection (including the archetype fallback for a map entity's lodDist of -1), materials and textures as the game binds them, alpha blend/decal ordering, detail maps, time-of-day object variants, script-map filtering, power-line cables, a draw-id picking pass (`--pick`, `--id-map`). Known gaps, diagnosed in [STATUS.md](STATUS.md): tint palettes sampled with the wrong sampler (pink railings), cutout alpha test reference not set (solid LOD billboards), LOD parents hidden while their children are out of range (holes), NaN pixels on tree-LOD billboards.
 
 Not done (these are the differences you will see against a screenshot):
 

@@ -89,7 +89,25 @@ cargo build --release --target x86_64-pc-windows-gnu
 # -> target/x86_64-pc-windows-gnu/release/vespucci.exe
 ```
 
-On Windows the same binary uses the system `d3d11.dll`/`dxgi.dll`, so DXVK is not involved and any GPU works. `vespucci.exe doctor --gpu` draws a test frame and reports the adapter. Building natively on Windows with the `x86_64-pc-windows-gnu` toolchain should work (bindgen needs LLVM installed and `LIBCLANG_PATH` set) but has not been exercised; MSVC is not supported because `build.rs` uses mingw's headers.
+On Windows the same binary uses the system `d3d11.dll`/`dxgi.dll`, so DXVK is not involved and any GPU works. `vespucci.exe doctor --gpu` draws a test frame and reports the adapter.
+
+### Developing natively on Windows
+
+The build needs the GNU toolchain (the D3D11 bindings are generated from mingw-w64's headers; MSVC is not supported) and LLVM for bindgen. This is the intended setup for the desktop work (M6); it has not been exercised yet, so report what breaks (issue #23).
+
+1. Install [MSYS2](https://www.msys2.org/) and, in its UCRT64 shell: `pacman -S mingw-w64-ucrt-x86_64-toolchain`. This provides `gcc`, `x86_64-w64-mingw32-gcc` and the headers in `C:\msys64\ucrt64\include`, which `build.rs` finds by itself.
+2. Install [LLVM](https://github.com/llvm/llvm-project/releases) (or `winget install LLVM.LLVM`) and set `LIBCLANG_PATH` to its `bin` directory.
+3. Install Rust with [rustup](https://rustup.rs/) and select the GNU host: `rustup default stable-x86_64-pc-windows-gnu`.
+4. Put `C:\msys64\ucrt64\bin` on `PATH` (for the linker named in `.cargo/config.toml`), then in a normal PowerShell:
+
+```powershell
+$env:GTAV_PATH = "C:\Program Files\Rockstar Games\Grand Theft Auto V"
+cargo build --release
+.\target\release\vespucci.exe doctor --gpu --out test.png
+.\target\release\vespucci.exe render --pos=-1280,-1450,4 --look=-1200,-1500,4 --out beach.png
+```
+
+If bindgen cannot find `d3d11.h`, set `VESPUCCI_D3D_INCLUDE` to the directory that holds it (`;`-separated if several). The helper shaders under `shaders/` are committed as DXBC, so `vkd3d-compiler` is not needed on Windows. `scripts/golden.sh` and `scripts/setup-linux.sh` are Linux-only; on Windows run the equivalent `vespucci compare` commands by hand or from Git Bash.
 
 ## Troubleshooting
 

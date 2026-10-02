@@ -102,6 +102,24 @@ pub fn apply(
 }
 
 /// Per-draw matrices for one instance.
+/// Per-frame values that some shaders keep in their own cbuffer (`FrameParams`):
+/// the cable shader's view-projection and its pixel-size parameters.
+pub fn set_frame(
+    globals: &mut Globals,
+    cam: &Camera,
+    view: &Mat4,
+    proj: &Mat4,
+    height: u32,
+    transpose: bool,
+) {
+    globals
+        .frame
+        .view_proj
+        .copy_from_slice(&pack(*proj * *view, transpose)[..]);
+    let pixels_per_metre = 0.5 * height as f32 / (cam.fov_deg.to_radians() * 0.5).tan();
+    globals.frame.cable_params = [pixels_per_metre, 1.0, 1.0, 1.0];
+}
+
 pub fn set_world(globals: &mut Globals, world: Mat4, view: &Mat4, proj: &Mat4, transpose: bool) {
     if let Some(m) = globals.get_mut("rage_matrices") {
         m.set_by_name("gWorld", &pack(world, transpose));

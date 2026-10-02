@@ -52,14 +52,16 @@ pub struct StreamStats {
     pub time_hidden: usize,
     /// Maps left out because the game only loads them on a script's request.
     pub script_maps_skipped: usize,
+    /// Entities whose map entry has no lodDist of its own (-1): the archetype's was used.
+    pub lod_dist_from_archetype: usize,
     pub instances: usize,
 }
 
 /// The LOD rule: an entity shows when the camera is within its `lodDist`
 /// and, if it has children, farther than `childLodDist` (then the children
 /// show instead).
-pub fn visible(e: &Entity, distance: f32, lod_scale: f32) -> (bool, &'static str) {
-    if distance >= e.lod_dist * lod_scale {
+pub fn visible(e: &Entity, lod_dist: f32, distance: f32, lod_scale: f32) -> (bool, &'static str) {
+    if distance >= lod_dist * lod_scale {
         return (false, "beyond");
     }
     if e.num_children > 0 && distance < e.child_lod_dist * lod_scale {
@@ -188,22 +190,29 @@ pub fn collect(
                 continue;
             }
             let d = dist(e.position, camera);
+            let Some(a) = db.get(e.archetype_hash) else {
+                stats.unknown_archetype += 1;
+                continue;
+            };
+            // A map entity's lodDist of -1 (or 0) means "the archetype's".
+            let lod_dist = if e.lod_dist > 0.0 {
+                e.lod_dist
+            } else {
+                stats.lod_dist_from_archetype += 1;
+                a.lod_dist
+            };
             // Debug: VESPUCCI_TRACE_ENTITY=substring logs the LOD decision of matching entities.
             if let Some(filter) = trace_filter.as_deref() {
-                let name = db
-                    .get(e.archetype_hash)
-                    .map(|a| {
-                        let (ext, h) = a.model_file();
-                        fs.by_hash(ext, h)
-                            .map(|l| l.name.clone())
-                            .unwrap_or_else(|| format!("{h:#010x}.{ext}"))
-                    })
-                    .unwrap_or_default();
+                let (ext, h) = a.model_file();
+                let name = fs
+                    .by_hash(ext, h)
+                    .map(|l| l.name.clone())
+                    .unwrap_or_else(|| format!("{h:#010x}.{ext}"));
                 if name.to_lowercase().contains(filter) {
-                    log::info!("entity {name} ymap {} d={d:.0} lodDist={:.0} childLodDist={:.0} children={} level={:?} parent={} pos=({:.0},{:.0},{:.0}) -> {}", fs.files[file as usize].name, e.lod_dist, e.child_lod_dist, e.num_children, e.lod_level, e.parent_index, e.position.x, e.position.y, e.position.z, visible(e, d, opts.lod_scale).1);
+                    log::info!("entity {name} ymap {} d={d:.0} lodDist={:.0}{} childLodDist={:.0} children={} level={:?} parent={} tint={} pos=({:.0},{:.0},{:.0}) -> {}", fs.files[file as usize].name, lod_dist, if e.lod_dist > 0.0 { "" } else { "(arch)" }, e.child_lod_dist, e.num_children, e.lod_level, e.parent_index, e.tint, e.position.x, e.position.y, e.position.z, visible(e, lod_dist, d, opts.lod_scale).1);
                 }
             }
-            match visible(e, d, opts.lod_scale) {
+            match visible(e, lod_dist, d, opts.lod_scale) {
                 (false, "beyond") => {
                     stats.beyond_lod_dist += 1;
                     continue;
@@ -214,10 +223,6 @@ pub fn collect(
                 }
                 _ => {}
             }
-            let Some(a) = db.get(e.archetype_hash) else {
-                stats.unknown_archetype += 1;
-                continue;
-            };
             if let (Some(h), Some(t)) = (opts.hour, a.time_flags) {
                 if (t >> (h % 24)) & 1 == 0 {
                     stats.time_hidden += 1;
@@ -232,7 +237,7 @@ pub fn collect(
                 scale_z: e.scale_z,
                 distance: d,
                 lod_level: e.lod_level,
-                lod_dist: e.lod_dist,
+                lod_dist,
                 tint: e.tint,
                 ymap: file,
                 flags: e.flags,

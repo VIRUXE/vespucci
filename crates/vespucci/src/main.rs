@@ -129,6 +129,12 @@ enum Cmd {
         /// Also show maps the game loads only on a script's request
         #[arg(long)]
         script_maps: bool,
+        /// Print the model and material drawn at pixel X,Y (a second pass writes draw ids)
+        #[arg(long, value_parser = parse_pixel)]
+        pick: Option<(u32, u32)>,
+        /// Also write a PNG with one colour per draw (same picking pass)
+        #[arg(long)]
+        id_map: Option<PathBuf>,
         #[arg(long, default_value = "frame.png")]
         out: PathBuf,
         #[arg(long)]
@@ -289,6 +295,8 @@ fn main() -> Result<()> {
             exposure,
             time,
             script_maps,
+            pick,
+            id_map,
             out,
             json,
         } => render::run(
@@ -308,6 +316,8 @@ fn main() -> Result<()> {
             exposure,
             &time,
             script_maps,
+            pick,
+            id_map.as_deref(),
             &out,
             json,
         ),
@@ -406,6 +416,18 @@ fn parse_vec3(s: &str) -> std::result::Result<(f32, f32, f32), String> {
         return Err("expected X,Y,Z".into());
     }
     Ok((v[0], v[1], v[2]))
+}
+
+fn parse_pixel(s: &str) -> std::result::Result<(u32, u32), String> {
+    let (x, y) = s.split_once(',').ok_or("expected X,Y")?;
+    Ok((
+        x.trim()
+            .parse()
+            .map_err(|e: std::num::ParseIntError| e.to_string())?,
+        y.trim()
+            .parse()
+            .map_err(|e: std::num::ParseIntError| e.to_string())?,
+    ))
 }
 
 fn parse_size(s: &str) -> std::result::Result<(u32, u32), String> {

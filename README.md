@@ -36,7 +36,7 @@ The render core is at milestone 4 of 6. What works today, all headless on Linux:
 | ✅ Game access | Keys derived from your `GTA5.exe`, every `.rpf` (nested, 92 DLC packs in load order, 389k files), story-mode vs. Online map sets from the DLC change sets |
 | ✅ Formats | Drawables (`.ydr`/`.ydd`/`.yft`), textures (`.ytd`, BC1–BC7), maps and archetypes (`.ymap`/`.ytyp`, 159k archetypes), the game's `.fxc` shader containers and DXBC reflection (696 shaders, 21k blobs, zero failures) |
 | ✅ One model | `render-model` draws any prop with the game's shader, every cbuffer and texture bound from the model's own material parameters, binding report as JSON |
-| ✅ Streamed world | `render` streams the map around a camera: LOD hierarchy, time-of-day objects, script-only maps filtered, decals and alpha in the right passes, HDR + tonemap. Vespucci Beach at 1280×720: 964 entities, 984 draws, 775 MB RSS, ~5 s |
+| ✅ Streamed world | `render` streams the map around a camera: LOD hierarchy, time-of-day objects, script-only maps filtered, decals and alpha in the right passes, HDR + tonemap, a draw-id picking pass for debugging (`--pick`). Vespucci Beach at 1280×720: 1,528 entities, 1,414 draws, 838 MB RSS, ~5 s |
 | 🔜 M5 | Game-lit frame: sky, time cycle and weather, deferred lighting, post-processing, matched pass by pass against RenderDoc captures of the real game |
 | 🔜 M6 | The editor: select, move/rotate/scale with gizmos, undo, object browser, save as a mod; the same operations over MCP in headless mode |
 
@@ -47,7 +47,9 @@ Limitations you will notice in today's renders: no sky, no shadows, a constant p
 | | |
 |---|---|
 | ![Boardwalk, Del Perro pier in the distance](docs/images/vespucci_boardwalk.png) | ![Vespucci Beach town and pier](docs/images/vespucci_beach_town.png) |
-| Boardwalk, with the Del Perro pier and ferris wheel in the distance | The beach town from a rooftop: tennis courts, the pier, 1,328 streamed entities |
+| Boardwalk, with the Del Perro pier and ferris wheel in the distance | The beach town from a rooftop: tennis courts, the pier, 2,136 streamed entities |
+
+These are preview-lit renders (M4). Visible defects, all diagnosed with the exact cause and fix in [docs/STATUS.md](docs/STATUS.md) and tracked as issues: pink tinted railings, cutout LOD billboards drawn solid, holes where a LOD parent hides while its children are out of range, and a few NaN pixels on tree-LOD billboards.
 
 ![Vinewood sign](docs/images/vinewood_sign.png)
 

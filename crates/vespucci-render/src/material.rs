@@ -6,6 +6,7 @@ use crate::cbuffer::CBufferBlock;
 use crate::shader_cache::{PixelStage, VertexStage};
 use crate::texture::TextureCache;
 use anyhow::Result;
+use glam::Mat4;
 use rage_formats::{ShaderFx, ShaderParameterValue, YtdTexture};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -38,12 +39,37 @@ pub fn is_global(name: &str) -> bool {
 /// One engine-owned constant buffer shared by every material that binds it.
 pub struct Globals {
     pub blocks: HashMap<String, CBufferBlock>,
+    /// Per-frame values some shaders keep in their own (material-owned) cbuffer
+    /// rather than in a global one, written into every material that declares them at bind time.
+    pub frame: FrameParams,
+}
+
+/// Engine values that live in material cbuffers (see [`Material::bind`]).
+#[derive(Debug, Clone, Default)]
+pub struct FrameParams {
+    /// `gViewProj`: view-projection in the same packing as `rage_matrices` (the cable shader
+    /// projects with this instead of `gWorldViewProj`).
+    pub view_proj: [f32; 16],
+    /// `gCableParams`: x = pixels per metre at 1 m (half the viewport height over tan(fov/2)),
+    /// y = radius scale, z = fade-exponent scale, w = alpha scale.
+    pub cable_params: [f32; 4],
+}
+
+/// Which per-frame value a material cbuffer variable takes.
+#[derive(Debug, Clone, Copy)]
+pub enum FrameVar {
+    ViewProj,
+    CableParams,
 }
 
 impl Globals {
     pub fn new() -> Globals {
         Globals {
             blocks: HashMap::new(),
+            frame: FrameParams {
+                view_proj: Mat4::IDENTITY.to_cols_array(),
+                cable_params: [1.0, 1.0, 1.0, 1.0],
+            },
         }
     }
 
@@ -127,6 +153,8 @@ pub struct Material {
     pub params_unmatched: Vec<String>,
     /// The drawable's render bucket: 0 opaque, 1 alpha, 2 decal, 3 cutout.
     pub bucket: u8,
+    /// Material cbuffer variables the engine fills per frame: (cbuffer index, name hash, value).
+    pub frame_vars: Vec<(usize, u32, FrameVar)>,
 }
 
 impl Material {
@@ -283,6 +311,23 @@ impl Material {
             }
         }
 
+        // Per-frame engine values that some shaders keep in their material cbuffer.
+        let mut frame_vars = Vec::new();
+        for (i, c) in cbuffers.iter().enumerate() {
+            let (None, Some(b)) = (&c.global, &c.block) else {
+                continue;
+            };
+            for (name, var) in [
+                ("gViewProj", FrameVar::ViewProj),
+                ("gCableParams", FrameVar::CableParams),
+            ] {
+                let h = joaat(name);
+                if b.has(h) {
+                    frame_vars.push((i, h, var));
+                }
+            }
+        }
+
         Ok(Material {
             shader_name: shader_name.to_string(),
             technique: technique.to_string(),
@@ -294,6 +339,7 @@ impl Material {
             params_applied,
             params_unmatched,
             bucket: fx.render_bucket,
+            frame_vars,
         })
     }
 
@@ -305,6 +351,14 @@ impl Material {
         sampler: &ComPtr<ID3D11SamplerState>,
         comparison: &ComPtr<ID3D11SamplerState>,
     ) -> Result<()> {
+        for &(i, hash, var) in &self.frame_vars {
+            if let Some(b) = self.cbuffers[i].block.as_mut() {
+                match var {
+                    FrameVar::ViewProj => b.set_f32(hash, &globals.frame.view_proj),
+                    FrameVar::CableParams => b.set_f32(hash, &globals.frame.cable_params),
+                };
+            }
+        }
         for c in &mut self.cbuffers {
             match (&c.global, &mut c.block) {
                 (Some(g), _) => {
