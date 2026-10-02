@@ -1,0 +1,10 @@
+[package]
+name = "vespucci-fxc"
+description = "The game's compiled shader containers (.fxc) and DXBC reflection (RDEF, ISGN/OSGN)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0"
+rpf-archive = "0.10"

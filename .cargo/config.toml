@@ -1,0 +1,9 @@
+# Linux (headless): rpath for DXVK-native. Link args from a dependency's build
+# script do not reach the binary, so they live here. --disable-new-dtags emits
+# DT_RPATH, which (unlike RUNPATH) also covers libdxvk_d3d11 -> libdxvk_dxgi.
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-Wl,-rpath,/opt/dxvk-native/lib/x86_64-linux-gnu", "-C", "link-arg=-Wl,--disable-new-dtags"]
+
+# Windows (desktop): cross-compiled with mingw-w64 from this server.
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"

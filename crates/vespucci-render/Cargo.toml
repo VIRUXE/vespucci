@@ -1,0 +1,17 @@
+[package]
+name = "vespucci-render"
+description = "Drawing the game's models with the game's own shaders: shader cache, material binding, GPU resources, frames"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vespucci-d3d11 = { path = "../vespucci-d3d11" }
+vespucci-fxc = { path = "../vespucci-fxc" }
+vespucci-game = { path = "../vespucci-game" }
+vespucci-world = { path = "../vespucci-world" }
+rage-formats = "0.4"
+glam = "0.30"
+anyhow = "1.0"
+log = "0.4"
+serde_json = "1.0"

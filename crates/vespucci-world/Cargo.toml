@@ -1,0 +1,14 @@
+[package]
+name = "vespucci-world"
+description = "The game world as data: archetype database, ymap tree, entities with LOD links, streaming by camera"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vespucci-game = { path = "../vespucci-game" }
+rage-formats = "0.4"
+anyhow = "1.0"
+log = "0.4"
+rayon = "1.10"
+roxmltree = "0.20"

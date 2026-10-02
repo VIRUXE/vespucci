@@ -1,0 +1,6 @@
+target/
+captures/
+tests/out/
+*.png
+!tests/golden/*.png
+*.log

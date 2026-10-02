@@ -1,0 +1,13 @@
+[package]
+name = "vespucci-d3d11"
+description = "D3D11 on Linux through DXVK-native: bindgen FFI over DXVK's own headers plus small safe wrappers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[dependencies]
+anyhow = "1.0"
+
+[build-dependencies]
+bindgen = "0.71"

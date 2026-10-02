@@ -1,0 +1,13 @@
+[package]
+name = "vespucci-game"
+description = "Access to a GTA V install: keys, RPF archives in load order, a flat file table across nested archives"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rpf-archive = "0.10"
+anyhow = "1.0"
+log = "0.4"
+memmap2 = "0.9"
+rayon = "1.10"
