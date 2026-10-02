@@ -99,6 +99,8 @@ pub struct BoundTexture {
     pub texture_name: Option<String>,
     pub srv: ComPtr<ID3D11ShaderResourceView>,
     pub found: bool,
+    /// No material parameter names this input: the engine supplies it per frame.
+    pub engine: bool,
 }
 
 pub struct Material {
@@ -112,6 +114,8 @@ pub struct Material {
     pub samplers: Vec<(Stage, u32, String)>,
     pub params_applied: usize,
     pub params_unmatched: Vec<String>,
+    /// The drawable's render bucket: 0 opaque, 1 alpha, 2 decal, 3 cutout.
+    pub bucket: u8,
 }
 
 impl Material {
@@ -149,10 +153,28 @@ impl Material {
                             let floats: Vec<f32> = v.iter().flat_map(|x| [x.x, x.y, x.z, x.w]).collect();
                             if block.set_f32(p.name_hash, &floats) {
                                 params_applied += 1;
+                                log::trace!("{shader_name}: {}:{} = {:?}", block.name, block.name_of(p.name_hash).unwrap_or("?"), &floats[..floats.len().min(8)]);
                             }
                         }
                     }
                     cbuffers.push(BoundCBuffer { stage, slot: b.bind_point, global: None, block: Some(block) });
+                }
+            }
+        }
+        // Debug: VESPUCCI_SET_VAR=cbuffer:var=a,b,c,d;... overrides material variables everywhere.
+        if let Ok(spec) = std::env::var("VESPUCCI_SET_VAR") {
+            for item in spec.split(';') {
+                if let Some((target, values)) = item.split_once('=') {
+                    if let Some((cb, var)) = target.split_once(':') {
+                        let v: Vec<f32> = values.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                        for c in &mut cbuffers {
+                            if let Some(b) = &mut c.block {
+                                if b.name == cb {
+                                    b.set_by_name(var, &v);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -177,7 +199,8 @@ impl Material {
                         let param = fx.parameters.iter().find(|p| p.name_hash == h1 || p.name_hash == h2);
                         let mut texture_name = None;
                         let is_shadow = b.name.to_lowercase().contains("shadow");
-                        let mut srv = if is_shadow { textures.unshadowed.clone_ptr() } else { textures.missing.clone_ptr() };
+                        let engine = param.is_none() && !is_shadow;
+                        let mut srv = if is_shadow { textures.unshadowed.clone_ptr() } else if engine { textures.engine.clone_ptr() } else { textures.missing.clone_ptr() };
                         let mut found = is_shadow;
                         if let Some(p) = param {
                             if let ShaderParameterValue::Texture { name, name_hash } = &p.value {
@@ -196,14 +219,14 @@ impl Material {
                                 }
                             }
                         }
-                        bound_textures.push(BoundTexture { stage, slot: b.bind_point, name: b.name.clone(), texture_name, srv, found });
+                        bound_textures.push(BoundTexture { stage, slot: b.bind_point, name: b.name.clone(), texture_name, srv, found, engine });
                     }
                     _ => {}
                 }
             }
         }
 
-        Ok(Material { shader_name: shader_name.to_string(), technique: technique.to_string(), vs, ps, cbuffers, textures: bound_textures, samplers, params_applied, params_unmatched })
+        Ok(Material { shader_name: shader_name.to_string(), technique: technique.to_string(), vs, ps, cbuffers, textures: bound_textures, samplers, params_applied, params_unmatched, bucket: fx.render_bucket })
     }
 
     /// Uploads dirty material buffers and binds everything for a draw.

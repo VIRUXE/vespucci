@@ -18,6 +18,9 @@ pub struct ArchetypeRec {
     pub asset_name_hash: u32,
     pub asset_type: u32,
     pub is_mlo: bool,
+    pub flags: u32,
+    /// Hour bits for time-dependent archetypes (`CTimeArchetypeDef`).
+    pub time_flags: Option<u32>,
     /// `joaat(stem)` of the `.ytyp` this came from.
     pub ytyp_hash: u32,
 }
@@ -82,6 +85,8 @@ impl ArchetypeDb {
                                 drawable_dictionary_hash: a.drawable_dictionary_hash,
                                 asset_name_hash: a.asset_name_hash,
                                 asset_type: a.asset_type,
+                                flags: a.flags,
+                                time_flags: a.time_flags,
                                 is_mlo: a.is_mlo,
                                 ytyp_hash,
                             },

@@ -39,6 +39,35 @@ pub fn run(fs: &GameFs, model: &str, entry: Option<&str>, ytds: &[String], lod: 
         }
         None => &drawables.first().context("file holds no drawables")?.drawable,
     };
+    // Vertex colour statistics per geometry (debug): tint shaders index palettes with these.
+    if log::log_enabled!(log::Level::Debug) {
+        for (mi, m) in drawable.lods.first().map(|l| l.models.as_slice()).unwrap_or(&[]).iter().enumerate() {
+            for (gi, geo) in m.geometries.iter().enumerate() {
+                let Some(vb) = &geo.vertex_buffer else { continue };
+                let n = (vb.vertex_count as usize).min(4000);
+                let (mut sum, mut mn, mut mx, mut count) = ([0u64; 4], [255u8; 4], [0u8; 4], 0u64);
+                for i in 0..n {
+                    if let Ok(attrs) = vb.read_vertex_attributes(i) {
+                        for a in attrs {
+                            if a.component.semantic == rage_formats::VertexSemantic::Colour0 {
+                                let c = a.value.as_rgba8();
+                                for k in 0..4 {
+                                    sum[k] += c[k] as u64;
+                                    mn[k] = mn[k].min(c[k]);
+                                    mx[k] = mx[k].max(c[k]);
+                                }
+                                count += 1;
+                            }
+                        }
+                    }
+                }
+                let shader = drawable.shader_group.as_ref().and_then(|sg| sg.shaders.get(geo.shader_id as usize)).map(|s| format!("{:#010x}", s.name_hash)).unwrap_or_default();
+                if count > 0 {
+                    log::debug!("model {mi} (mask {:#06x}, drawable masks {:x?}) geo {gi} shader {shader}: colour0 mean {:?} min {mn:?} max {mx:?} over {count}", m.render_mask_flags, drawable.render_masks, sum.map(|s| s / count));
+                }
+            }
+        }
+    }
     // Vertex colour statistics of the first geometry: the unlit shader multiplies by it.
     if let Some(geo) = drawable.lods.first().and_then(|l| l.models.first()).and_then(|m| m.geometries.first()) {
         if let Some(vb) = &geo.vertex_buffer {

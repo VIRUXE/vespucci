@@ -55,10 +55,10 @@ Dependencies: `rpf-archive`, `rage-formats`, `rage-render` (comparison/fallback 
 | M1 ✅ (Linux) | Game access through the crates; Windows cross-build | `ls`/`cat`/`find` over all RPFs (nested + DLC order); keys from the exe, cached. `cargo build --target x86_64-pc-windows-gnu` produces a `vespucci.exe` whose `doctor --gpu` passes on the PC on native D3D11. |
 | M2 ✅ | Shaders + index | `.fxc` and DXBC parsers (696 files / 21,374 blobs parse); `shader NAME --reflect`; archetype DB (159k) + ymap tree (from cache files) + story/online map sets from DLC change sets; `index`, `probe`. |
 | M3 ✅ (headless) | One model via a game `.fxc`; first window | `render-model` draws a textured prop with the game's own shader, zero unbound inputs. Desktop shell opens a window on the PC with that model in the viewport, orbit camera, ImGui panels. |
-| M4 | Streamed world | `render --lighting basic` at Vespucci Beach, RSS <3.5 GB headless; desktop shell flies around the streamed world. |
+| M4 ✅ (headless) | Streamed world | `render --lighting basic` at Vespucci Beach, RSS <3.5 GB headless (775 MB, 5 s warm); desktop shell flies around the streamed world. |
 | M5 | Game-lit frame vs RenderDoc capture | Per-pass thresholds pass against the user's capture A. **Render core MVP.** |
 | M6 | Editor | Ariane's core loop: select, move/rotate/scale with gizmos, snapping, undo/redo, object browser with previews, save to a mod folder; same operations exposed over MCP in headless mode. |
 
 After that: vehicles (`.yft` + carcols) and car generators, prefabs, water/path editing, exact-look refinements, web viewer for the headless server.
 
-Detailed design notes live in `docs/`. **Current state and how to resume: `docs/STATUS.md`** (paused 2026-09-30 mid-M3).
+Detailed design notes live in `docs/`. **Current state and how to resume: `docs/STATUS.md`** (M4 done 2026-10-02).

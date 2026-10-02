@@ -37,6 +37,11 @@ impl CBufferBlock {
         self.vars.contains_key(&name_hash)
     }
 
+    /// The variable name behind a hash (exact or lowercase), for logs.
+    pub fn name_of(&self, name_hash: u32) -> Option<&str> {
+        self.names.iter().find(|n| joaat(n) == name_hash || joaat(&n.to_lowercase()) == name_hash).map(|s| s.as_str())
+    }
+
     /// Writes floats at the variable; returns false when the buffer has no such variable.
     pub fn set_f32(&mut self, name_hash: u32, values: &[f32]) -> bool {
         let Some(&(off, size)) = self.vars.get(&name_hash) else { return false };

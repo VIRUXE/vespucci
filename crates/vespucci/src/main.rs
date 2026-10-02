@@ -5,6 +5,7 @@ use std::time::Instant;
 
 mod doctor;
 mod files;
+mod render;
 mod render_model;
 mod shader;
 mod texture;
@@ -82,6 +83,50 @@ enum Cmd {
         pos: (f32, f32, f32),
         #[arg(long, default_value_t = 300.0)]
         radius: f32,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Draw the world from a camera position with the game's own shaders to a PNG.
+    Render {
+        /// Camera position X,Y,Z
+        #[arg(long, value_parser = parse_vec3)]
+        pos: (f32, f32, f32),
+        /// Point the camera looks at X,Y,Z
+        #[arg(long, value_parser = parse_vec3)]
+        look: (f32, f32, f32),
+        #[arg(long, default_value_t = 50.0)]
+        fov: f32,
+        #[arg(long, default_value = "1280x720", value_parser = parse_size)]
+        size: (u32, u32),
+        /// Maps touching this radius around the camera are streamed
+        #[arg(long, default_value_t = 300.0)]
+        radius: f32,
+        #[arg(long, default_value_t = 1.0)]
+        lod_scale: f32,
+        /// none (unlit) or basic (forward-lit preview)
+        #[arg(long, default_value = "basic")]
+        lighting: String,
+        #[arg(long, default_value_t = 20000)]
+        max_draws: usize,
+        /// Stop loading models past this much geometry + texture data
+        #[arg(long, default_value_t = 1500)]
+        budget_mb: usize,
+        /// Mip levels dropped near,mid,far (<100 m, <500 m, beyond)
+        #[arg(long, default_value = "0,1,2")]
+        mip_skip: String,
+        #[arg(long)]
+        flip_sun: bool,
+        /// Scale on the linear HDR frame before the display curve
+        #[arg(long, default_value_t = 1.0)]
+        exposure: f32,
+        /// Time of day HH:MM; picks the hour variants of time-dependent objects
+        #[arg(long, default_value = "12:00")]
+        time: String,
+        /// Also show maps the game loads only on a script's request
+        #[arg(long)]
+        script_maps: bool,
+        #[arg(long, default_value = "frame.png")]
+        out: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -190,6 +235,9 @@ fn main() -> Result<()> {
         }
         Cmd::Index => world::index(&files::open(game()?)?, mode),
         Cmd::Probe { pos, radius, json } => world::probe(&files::open(game()?)?, mode, vespucci_world::Vec3::new(pos.0, pos.1, pos.2), radius, json),
+        Cmd::Render { pos, look, fov, size, radius, lod_scale, lighting, max_draws, budget_mb, mip_skip, flip_sun, exposure, time, script_maps, out, json } => {
+            render::run(&files::open(game()?)?, mode, pos, look, fov, size, radius, lod_scale, &lighting, max_draws, budget_mb, &mip_skip, flip_sun, exposure, &time, script_maps, &out, json)
+        }
         Cmd::RenderModel { model, entry, ytd, lod, technique, size, yaw, pitch, transpose, flip_sun, cull, wireframe, mip_skip, out, dump_binding } => {
             render_model::run(&files::open(game()?)?, &model, entry.as_deref(), &ytd, &lod, &technique, size, yaw, pitch, transpose, flip_sun, cull, wireframe, mip_skip, &out, dump_binding.as_deref())
         }

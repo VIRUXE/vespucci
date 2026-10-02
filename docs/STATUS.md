@@ -65,6 +65,37 @@ $V shader normal_spec [--vars] [--reflect] [--blob vs:6 --out x.dxbc] ;  $V shad
 cargo build --release --target x86_64-pc-windows-gnu && cp target/x86_64-pc-windows-gnu/release/vespucci.exe /srv/samba/share/vespucci/
 ```
 
+## Update 2026-10-02 — M4 done (headless): streamed world
+
+`vespucci render --pos X,Y,Z --look X,Y,Z [--fov 50] [--size 1280x720] [--radius 300] [--lod-scale 1] [--lighting basic|none] [--time 12:00] [--script-maps] [--max-draws N] [--budget-mb N] [--mip-skip 0,1,2] [--exposure 1] [--flip-sun] [--json] --out frame.png`
+draws the streamed world around a camera through the game's own shaders. Exit test (`tests/out/m4_*.png`, goldens `tests/golden/world_{beach,legion}.png` at 640x360, PSNR ≥ 35 in `scripts/golden.sh`):
+
+| scene | instances (culled) | models | draws | geometry + textures | peak RSS | time (warm) |
+|---|---|---|---|---|---|---|
+| Vespucci Beach `-1280,-1450,4 → -1200,-1500,4`, radius 300, 1280x720 | 964 (615) | 120 | 984 | 13 + 50 MB | 775 MB | 4.6 s (≈13 s cold, shader JIT) |
+| Legion Square `195,-934,30 → 230,-900,28` | 1076 (816) | 89 | 877 | 11 + 42 MB | 769 MB | 7.4 s |
+
+Pipeline (`crates/vespucci-world/src/streamer.rs`, `crates/vespucci-render/src/world_view.rs`, `crates/vespucci/src/render.rs`):
+1. `MapSet` → `YmapTree::touching(camera, radius)` → entities parsed in parallel → LOD rule (`d < lodDist` and not hidden by nearer children) → `Instance` list sorted by distance.
+2. Frustum cull by archetype sphere; models loaded on demand (`ydr`/`ydd`/`yft` by hash), textures from the archetype txd + `gtxd` parents + a model-named ytd + the shared `mapdetail`/`vehshare` dictionaries; drawable LOD by `lod_distances`; mip levels dropped by distance; geometry/texture byte budget.
+3. Three passes with D3D11 state: opaque (render buckets 0,3,… ; depth write), decals (bucket 2; alpha blend, depth test only), alpha (bucket 1; blended, far-to-near). Bucket 3 materials prefer the `…CutOut_draw` techniques.
+4. Reversed-Z `D32_FLOAT` depth (`Camera::proj_reversed`, clear 0, GREATER) — kills decal z-fighting. HDR `R16G16B16A16_FLOAT` target, tonemapped on the CPU (`tonemap.rs`: exposure → ACES → gamma 2.2; NaN/Inf → magenta and a warning).
+
+Things learned (all empirical, see also `docs/binding.md`):
+- **Script-only maps**: `CMapData.flags` bit 0 marks ymaps the game loads only on a script's request (`vb_29_day/night`, `*_reflproxy`/`*_reflection_lod` boxes, crime-scene props). They are skipped unless `--script-maps`. The giant grey "wall" in the first renders was `dt1_21_reflproxy` (a 6.7 km reflection-proxy box). Exception: time-of-day variants (`*_morning/_day/_evening/_night[_lod]`) are picked by `--time` with guessed hour bands (morning 06–11, day 12–17, evening 18–20, else night; missing variants fall back to `day`).
+- **Time archetypes**: `CTimeArchetypeDef.timeFlags` bit h = visible at hour h; honoured via `--time` (vendored `rage-formats` exposes `time_flags` and `flags`).
+- **Shadow proxies**: a `DrawableModel` whose `render_mask_flags` bit 0 is clear (e.g. `0xe2`) is shadow-only; drawing it put white vertex-coloured `cpv_only` meshes over the palm trunks. Visible models have `0xff`/`0xfd`.
+- **Engine textures** without a material parameter (`ReflectionSampler`, `FogRaySampler`) get a flat dim-sky stand-in (`TextureCache::engine`), counted as "engine" not "missing". `FogRaySampler` is only read when `misc_globals` reg 19.y > 0.
+- The pink blotches on the Vespucci plaza are real: `rsn_os_paintedamage` paint-splat decals.
+- Shaders without any forward technique (`grass_fur_mask`, `trees_shadow_proxy` in unlit) are skipped and logged at debug level.
+- Draw order groups by model pointer, so renders differ run-to-run by a few decal pixels (PSNR ≈ 60 dB); goldens use ≥ 35.
+
+Debug switches (environment): `VESPUCCI_SKIP=name,…` (models by file name), `VESPUCCI_SKIP_SHADER=decal,…`, `VESPUCCI_SET_VAR=cb:var=a,b,c,d;…` (material variables), `VESPUCCI_SET_GLOBAL=cb:var=…` (preview globals), `VESPUCCI_ENGINE_TEX=r,g,b`, `VESPUCCI_MINLOD`/`VESPUCCI_MAXLOD` (sampler mip range), `VESPUCCI_PROBE=x,y` (print the HDR value of a pixel), `VESPUCCI_ALL_MODELS` (render-model: include shadow-only models); `--log trace` prints one line per drawn instance (name, distance, LOD, size, ymap, entity/archetype flags, time flags).
+
+Not done in M4 (deferred to M5/M6): sky dome, real lighting/time-of-day/weather (the preview sun + ambient are constants), water, MLO interiors (`include_mlo_instances` false), vehicles/car generators, the desktop shell "flies around the streamed world" half of the milestone (Windows exe untested on the PC; it builds).
+
+**Next: M5** — game-lit frame matched to RenderDoc captures (needs the user's captures A–E; see PLAN.md), then M6 editor + MCP.
+
 ## Update 2026-10-02 — M3 done (headless)
 
 `vespucci render-model NAME [--technique T] [--ytd …] [--lod …] [--size WxH] [--yaw/--pitch] [--out x.png] [--dump-binding b.json]` draws a drawable through the game's own shaders on lavapipe:
@@ -104,4 +135,4 @@ M4 streamed world (`render --lighting basic`, Vespucci Beach, RSS < 3.5 GB) → 
 - Matrix packing convention and shader-param hash case: decided empirically on the first `render-model` run.
 - Vertex declarations with `Unknown` semantics/types are skipped by `layout.rs`; watch the skipped-geometry count.
 - Memory: lavapipe keeps GPU resources in RAM; M4 must budget (~0.5 GB geometry, 0.8 GB textures, mip trimming by distance).
-- Nothing committed to git. Suggested first commit: everything except `tests/out/`, `target/` (already gitignored).
+- (Historical) first commit `f7de87e` holds M0–M3; M4 committed after it.

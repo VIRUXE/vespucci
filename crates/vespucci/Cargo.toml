@@ -17,6 +17,7 @@ vespucci-world = { path = "../vespucci-world" }
 vespucci-render = { path = "../vespucci-render" }
 rage-formats = "0.4"
 serde_json = "1.0"
+glam = "0.30"
 log = "0.4"
 env_logger = "0.11"
 anyhow = "1.0"

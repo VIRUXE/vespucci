@@ -11,12 +11,26 @@ declare -A CASES=(
   [bag_lit]="prop_cs_heist_bag_01 lightweightHighQuality0_draw"
   [barrier_lit]="prop_barrier_work05 lightweightHighQuality0_draw"
 )
+# World renders (M4): camera position, look-at. Compared at PSNR >= 35 dB.
+declare -A WORLD=(
+  [world_beach]="-1280,-1450,4 -1200,-1500,4"
+  [world_legion]="195,-934,30 230,-900,28"
+)
 fail=0
+check() { # name min_psnr
+  if [ "${UPDATE:-}" = 1 ]; then cp "$OUT/$1.png" "tests/golden/$1.png"; echo "updated $1"; return; fi
+  printf "%-14s " "$1"
+  $V compare "$OUT/$1.png" "tests/golden/$1.png" --min-psnr "$2" || fail=1
+}
+[ "${1:-}" = "--update" ] && UPDATE=1
 for name in "${!CASES[@]}"; do
   read -r model technique <<<"${CASES[$name]}"
   render "$model" "$technique" "$OUT/$name.png"
-  if [ "${1:-}" = "--update" ]; then cp "$OUT/$name.png" "tests/golden/$name.png"; echo "updated $name"; continue; fi
-  printf "%-14s " "$name"
-  $V compare "$OUT/$name.png" "tests/golden/$name.png" --min-psnr 40 || fail=1
+  check "$name" 40
+done
+for name in "${!WORLD[@]}"; do
+  read -r pos look <<<"${WORLD[$name]}"
+  $V --log warn render --pos="$pos" --look="$look" --radius 300 --size 640x360 --lighting basic --out "$OUT/$name.png" >/dev/null
+  check "$name" 35
 done
 exit $fail

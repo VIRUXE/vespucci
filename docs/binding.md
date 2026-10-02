@@ -47,3 +47,12 @@ Globals the `.fxc` defaults leave at values that produce black or NaN; the rende
 - Engine textures still unbound in previews: `ReflectionSampler` (t1), `FogRaySampler` (t11) → magenta 1x1; harmless with fog off and reflection tweaks zero.
 - Output is linear HDR (the game tonemaps afterwards); the unlit `tex * vertexColour` path and the lit path are both frozen as goldens (`scripts/golden.sh`).
 - Debug switches: `VESPUCCI_ONES=<cbuffer>|material` fills a buffer with 1.0; `VESPUCCI_ONES_VAR=<cbuffer>:<var>[:index]` sets one variable/element. `vkd3d-compiler -b d3d-asm blob.dxbc` disassembles any blob from `vespucci shader NAME --blob ps:N --out blob.dxbc`.
+
+## World rendering (verified M4, 2026-10-02)
+- Render buckets (`ShaderFx.render_bucket`): 0 opaque, 1 alpha (blend, no depth write, back-to-front), 2 decal (blend, depth test GREATER_EQUAL under reversed-Z, no write), 3 cutout (opaque pass with the `…CutOut_draw` technique). Everything else is drawn opaque for now.
+- `DrawableModel.render_mask_flags` bit 0 = drawn in the visible pass; clear on shadow-proxy models (`cpv_only`/`trees_shadow_proxy` geometry).
+- `CMapData.flags` bit 0 = script-requested map (not streamed by position); `CTimeArchetypeDef.timeFlags` bit h = visible during hour h.
+- `_tnt` shaders: the vertex shader samples `TintPaletteSampler` at `(COLOR0.b, tintPaletteSelector.x)` (`sample_l`, level 0); palettes are 256×N with unused entries magenta. The entity `tint` value is not applied yet (selector stays at the material default).
+- `normal_spec_detail*`: detail uv = uv × `detailSettings.zw`, two taps (second at ×3.17) averaged; `detailSettings.x` darkens diffuse by `d.x × spec.a`, `.y` scales the detail normal; the shared detail maps live in `x64a.rpf/textures/mapdetail.ytd` (BC5).
+- Forward pixel shaders square the diffuse sample (`mul r0.xyz, r0, r0`) — textures are sampled as plain UNORM, not sRGB views; the output is linear HDR, so the preview tonemap is exposure → ACES → gamma 2.2.
+- `FogRaySampler` (t11) is read only when `misc_globals` reg 19.y > 0; `ReflectionSampler` (t1) is a 2D paraboloid map in the game — a flat sky-coloured stand-in is bound in previews.

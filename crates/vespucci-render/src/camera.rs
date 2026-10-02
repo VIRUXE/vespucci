@@ -21,6 +21,12 @@ impl Camera {
         Mat4::perspective_rh(self.fov_deg.to_radians(), self.aspect, self.near, self.far)
     }
 
+    /// Reversed-Z projection (near maps to 1, far to 0): with a float depth
+    /// buffer this keeps coplanar decals and distant geometry from z-fighting.
+    pub fn proj_reversed(&self) -> Mat4 {
+        Mat4::perspective_rh(self.fov_deg.to_radians(), self.aspect, self.far, self.near)
+    }
+
     /// Frames a bounding sphere: looks at its centre from the given angles.
     pub fn orbit(centre: Vec3, radius: f32, aspect: f32, yaw_deg: f32, pitch_deg: f32) -> Camera {
         let fov: f32 = 45.0;

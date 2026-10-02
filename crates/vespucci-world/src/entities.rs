@@ -95,6 +95,9 @@ pub struct CarGenerator {
 }
 
 pub struct YmapEntities {
+    /// `CMapData::flags`: bit 0 script-requested (not streamed by position), bit 1 LOD.
+    pub flags: u32,
+    pub content_flags: u32,
     pub entities: Vec<Entity>,
     pub car_generators: Vec<CarGenerator>,
 }
@@ -156,5 +159,5 @@ pub fn parse_entities(data: &[u8]) -> Result<YmapEntities> {
         })
         .collect();
 
-    Ok(YmapEntities { entities, car_generators })
+    Ok(YmapEntities { flags: u32_le(d, 16), content_flags: u32_le(d, 20), entities, car_generators })
 }

@@ -384,8 +384,9 @@ impl Device {
             MaxAnisotropy: max_anisotropy,
             ComparisonFunc: D3D11_COMPARISON_NEVER,
             BorderColor: [0.0; 4],
-            MinLOD: 0.0,
-            MaxLOD: 3.402_823_5e38,
+            // Debug: VESPUCCI_MINLOD / VESPUCCI_MAXLOD pin every sampler to a mip range.
+            MinLOD: std::env::var("VESPUCCI_MINLOD").ok().and_then(|v| v.parse().ok()).unwrap_or(0.0),
+            MaxLOD: std::env::var("VESPUCCI_MAXLOD").ok().and_then(|v| v.parse().ok()).unwrap_or(3.402_823_5e38),
         };
         let mut s: *mut ID3D11SamplerState = null_mut();
         check(unsafe { com_call!(self.dev.as_ptr(), CreateSamplerState, &desc, &mut s) }, "CreateSamplerState")?;
@@ -403,8 +404,9 @@ impl Device {
             MaxAnisotropy: 1,
             ComparisonFunc: D3D11_COMPARISON_LESS_EQUAL,
             BorderColor: [1.0; 4],
-            MinLOD: 0.0,
-            MaxLOD: 3.402_823_5e38,
+            // Debug: VESPUCCI_MINLOD / VESPUCCI_MAXLOD pin every sampler to a mip range.
+            MinLOD: std::env::var("VESPUCCI_MINLOD").ok().and_then(|v| v.parse().ok()).unwrap_or(0.0),
+            MaxLOD: std::env::var("VESPUCCI_MAXLOD").ok().and_then(|v| v.parse().ok()).unwrap_or(3.402_823_5e38),
         };
         let mut s: *mut ID3D11SamplerState = null_mut();
         check(unsafe { com_call!(self.dev.as_ptr(), CreateSamplerState, &desc, &mut s) }, "CreateSamplerState (comparison)")?;
@@ -417,7 +419,7 @@ impl Device {
             Height: height,
             MipLevels: 1,
             ArraySize: 1,
-            Format: DXGI_FORMAT_D24_UNORM_S8_UINT,
+            Format: DXGI_FORMAT_D32_FLOAT,
             SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
             Usage: D3D11_USAGE_DEFAULT,
             BindFlags: D3D11_BIND_DEPTH_STENCIL as u32,
@@ -460,7 +462,55 @@ impl Device {
     }
 
     pub fn clear_depth(&self, depth: &DepthTarget) {
-        unsafe { com_call!(self.ctx.as_ptr(), ClearDepthStencilView, depth.dsv.as_ptr(), (D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL) as u32, 1.0, 0) }
+        self.clear_depth_to(depth, 1.0);
+    }
+
+    pub fn clear_depth_to(&self, depth: &DepthTarget, value: f32) {
+        unsafe { com_call!(self.ctx.as_ptr(), ClearDepthStencilView, depth.dsv.as_ptr(), D3D11_CLEAR_DEPTH as u32, value, 0) }
+    }
+
+    /// Depth test with or without writes; `func` is the comparison that passes.
+    pub fn create_depth_state(&self, write: bool, func: D3D11_COMPARISON_FUNC) -> Result<ComPtr<ID3D11DepthStencilState>> {
+        let face = D3D11_DEPTH_STENCILOP_DESC { StencilFailOp: D3D11_STENCIL_OP_KEEP, StencilDepthFailOp: D3D11_STENCIL_OP_KEEP, StencilPassOp: D3D11_STENCIL_OP_KEEP, StencilFunc: D3D11_COMPARISON_ALWAYS };
+        let desc = D3D11_DEPTH_STENCIL_DESC {
+            DepthEnable: 1,
+            DepthWriteMask: if write { D3D11_DEPTH_WRITE_MASK_ALL } else { D3D11_DEPTH_WRITE_MASK_ZERO },
+            DepthFunc: func,
+            StencilEnable: 0,
+            StencilReadMask: 0xff,
+            StencilWriteMask: 0xff,
+            FrontFace: face,
+            BackFace: face,
+        };
+        let mut ds: *mut ID3D11DepthStencilState = null_mut();
+        check(unsafe { com_call!(self.dev.as_ptr(), CreateDepthStencilState, &desc, &mut ds) }, "CreateDepthStencilState")?;
+        ComPtr::from_raw(ds).context("null depth-stencil state")
+    }
+
+    pub fn set_depth_state(&self, ds: &ComPtr<ID3D11DepthStencilState>) {
+        unsafe { com_call!(self.ctx.as_ptr(), OMSetDepthStencilState, ds.as_ptr(), 0) }
+    }
+
+    /// Opaque writes, or straight alpha blending (`src.a`, `1 - src.a`).
+    pub fn create_blend_state(&self, alpha: bool) -> Result<ComPtr<ID3D11BlendState>> {
+        let rt = D3D11_RENDER_TARGET_BLEND_DESC {
+            BlendEnable: alpha as i32,
+            SrcBlend: D3D11_BLEND_SRC_ALPHA,
+            DestBlend: D3D11_BLEND_INV_SRC_ALPHA,
+            BlendOp: D3D11_BLEND_OP_ADD,
+            SrcBlendAlpha: D3D11_BLEND_ONE,
+            DestBlendAlpha: D3D11_BLEND_INV_SRC_ALPHA,
+            BlendOpAlpha: D3D11_BLEND_OP_ADD,
+            RenderTargetWriteMask: D3D11_COLOR_WRITE_ENABLE_ALL as u8,
+        };
+        let desc = D3D11_BLEND_DESC { AlphaToCoverageEnable: 0, IndependentBlendEnable: 0, RenderTarget: [rt; 8] };
+        let mut bs: *mut ID3D11BlendState = null_mut();
+        check(unsafe { com_call!(self.dev.as_ptr(), CreateBlendState, &desc, &mut bs) }, "CreateBlendState")?;
+        ComPtr::from_raw(bs).context("null blend state")
+    }
+
+    pub fn set_blend_state(&self, bs: &ComPtr<ID3D11BlendState>) {
+        unsafe { com_call!(self.ctx.as_ptr(), OMSetBlendState, bs.as_ptr(), null(), 0xffff_ffff) }
     }
 
     pub fn set_rasterizer(&self, rs: &ComPtr<ID3D11RasterizerState>) {

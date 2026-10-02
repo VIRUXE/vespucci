@@ -63,6 +63,9 @@ pub fn solid(dev: &Device, rgba: [u8; 4]) -> Result<ComPtr<ID3D11ShaderResourceV
 pub struct TextureCache {
     srvs: HashMap<u32, ComPtr<ID3D11ShaderResourceView>>,
     pub missing: ComPtr<ID3D11ShaderResourceView>,
+    /// For engine-owned inputs without a material parameter (reflection map, fog
+    /// rays, ...): a flat dim sky colour, so reflections read as "sky" not magenta.
+    pub engine: ComPtr<ID3D11ShaderResourceView>,
     /// 1x1 depth value 1.0: every `sample_c` shadow test passes (fully lit).
     pub unshadowed: ComPtr<ID3D11ShaderResourceView>,
     pub uploaded_bytes: usize,
@@ -72,7 +75,15 @@ impl TextureCache {
     pub fn new(dev: &Device) -> Result<TextureCache> {
         let one = 1.0f32.to_le_bytes();
         let depth_one = dev.create_texture2d_mips(1, 1, DXGI_FORMAT_R32_FLOAT, &[(&one, 4)])?;
-        Ok(TextureCache { srvs: HashMap::new(), missing: solid(dev, [255, 0, 255, 255])?, unshadowed: dev.create_srv(&depth_one)?, uploaded_bytes: 0 })
+        // Debug: VESPUCCI_ENGINE_TEX=r,g,b (0-255) changes the stand-in colour.
+        let engine_rgba: [u8; 4] = std::env::var("VESPUCCI_ENGINE_TEX")
+            .ok()
+            .and_then(|v| {
+                let c: Vec<u8> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                (c.len() >= 3).then(|| [c[0], c[1], c[2], 255])
+            })
+            .unwrap_or([77, 102, 140, 255]);
+        Ok(TextureCache { srvs: HashMap::new(), missing: solid(dev, [255, 0, 255, 255])?, engine: solid(dev, engine_rgba)?, unshadowed: dev.create_srv(&depth_one)?, uploaded_bytes: 0 })
     }
 
     pub fn get(&self, name_hash: u32) -> Option<&ComPtr<ID3D11ShaderResourceView>> {

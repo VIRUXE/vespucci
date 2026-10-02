@@ -1,12 +1,12 @@
 //! One drawable through the game's shaders to an image.
 
-use crate::camera::{pack, Camera};
+use crate::camera::Camera;
 use crate::layout::{LayoutCache, DUMMY_BYTES, DUMMY_SLOT};
 use crate::material::{Globals, Material};
 use crate::shader_cache::ShaderCache;
 use crate::texture::TextureCache;
 use anyhow::{Context, Result};
-use glam::{Mat4, Vec3};
+use glam::Vec3;
 use rage_formats::{Drawable, LodLevel, YtdTexture};
 use std::collections::HashMap;
 use vespucci_d3d11::ffi::*;
@@ -102,6 +102,9 @@ pub fn render_drawable(dev: &Device, fs: &GameFs, shaders: &mut ShaderCache, dra
     let mut vertex_layouts: Vec<String> = Vec::new();
     let lod = drawable.lods.iter().find(|l| l.level == opts.lod).or_else(|| drawable.lods.first()).context("drawable has no LODs")?;
     for model in &lod.models {
+        if model.render_mask_flags & 1 == 0 && std::env::var("VESPUCCI_ALL_MODELS").is_err() {
+            continue; // shadow-only model (render mask bit 0 clear)
+        }
         for geo in &model.geometries {
             let Some(vb) = &geo.vertex_buffer else { skipped += 1; continue };
             let Some(decl) = &vb.declaration else { skipped += 1; continue };
@@ -136,57 +139,30 @@ pub fn render_drawable(dev: &Device, fs: &GameFs, shaders: &mut ShaderCache, dra
         }
     }
 
-    // Camera framing the drawable, and the matrices every shader shares.
+    // Camera framing the drawable, and the engine globals every shader shares.
     let b = &drawable.bounds;
     let centre = Vec3::new(b.center.x, b.center.y, b.center.z);
     let radius = if b.sphere_radius > 0.0 { b.sphere_radius } else { 1.0 };
     let cam = Camera::orbit(centre, radius, opts.width as f32 / opts.height as f32, opts.yaw_deg, opts.pitch_deg);
-    let world = Mat4::IDENTITY;
-    let view = cam.view();
-    let proj = cam.proj();
-    if let Some(m) = globals.get_mut("rage_matrices") {
-        let t = opts.transpose_matrices;
-        m.set_by_name("gWorld", &pack(world, t));
-        m.set_by_name("gWorldView", &pack(view * world, t));
-        m.set_by_name("gWorldViewProj", &pack(proj * view * world, t));
-        m.set_by_name("gViewInverse", &pack(view.inverse(), t));
-    }
-    if let Some(m) = globals.get_mut("misc_globals") {
-        m.set_by_name("globalScreenSize", &[opts.width as f32, opts.height as f32, 1.0 / opts.width as f32, 1.0 / opts.height as f32]);
-        // The forward pixel shaders scale their final colour by globalScalars3.z (0 in the .fxc defaults).
-        m.set_by_name("globalScalars3", &[16.0, 0.0625, 1.0, 1.0]);
-    }
-    // Preview lighting for the forward techniques: a sun from the camera's side and a flat ambient.
-    if let Some(m) = globals.get_mut("lighting_globals") {
-        let sun = Vec3::new(-0.4, -0.3, -0.85).normalize() * opts.sun_sign;
-        m.set_by_name("gDirectionalLight", &[sun.x, sun.y, sun.z, 0.0]);
-        m.set_by_name("gDirectionalColour", &[1.0, 0.98, 0.92, 1.0]);
-        for name in ["gLightNaturalAmbient0", "gLightNaturalAmbient1", "gLightArtificialIntAmbient0", "gLightArtificialIntAmbient1", "gLightArtificialExtAmbient0", "gLightArtificialExtAmbient1"] {
-            m.set_by_name(name, &[0.35, 0.37, 0.42, 1.0]);
+    crate::globals_preview::apply(&mut globals, &cam, opts.width, opts.height, opts.sun_sign, opts.transpose_matrices);
+    // Debug: VESPUCCI_SET_VAR=<cbuffer>:<var>=a,b,c,d sets a material variable in every material.
+    if let Ok(spec) = std::env::var("VESPUCCI_SET_VAR") {
+        if let Some((target, values)) = spec.split_once('=') {
+            if let Some((cb, var)) = target.split_once(':') {
+                let v: Vec<f32> = values.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                let mut hits = 0;
+                for m in materials.iter_mut().flatten() {
+                    for c in &mut m.cbuffers {
+                        if let Some(b) = &mut c.block {
+                            if b.name == cb && b.set_by_name(var, &v) {
+                                hits += 1;
+                            }
+                        }
+                    }
+                }
+                log::info!("VESPUCCI_SET_VAR {cb}:{var} = {v:?} applied to {hits} material buffers");
+            }
         }
-        m.set_by_name("gDirectionalAmbientColour", &[0.2, 0.2, 0.2, 1.0]);
-        m.set_by_name("gNumForwardLights", &[0.0]);
-        // Fog off: a start distance beyond everything, and non-zero exponents in the two
-        // sun-scatter terms (regs 3/4 .w), whose `log(0) * 0` would otherwise be NaN.
-        let mut fog = [0.0f32; 20];
-        fog[0] = 1.0e8;
-        fog[12] = sun.x; fog[13] = sun.y; fog[14] = sun.z; fog[15] = 1.0;
-        fog[16] = sun.x; fog[17] = sun.y; fog[18] = sun.z; fog[19] = 1.0;
-        m.set_by_name("globalFogParams", &fog);
-    }
-    if let Some(m) = globals.get_mut("more_stuff") {
-        m.set_by_name("gAmbientOcclusionEffect", &[1.0, 1.0, 1.0, 1.0]);
-        m.set_by_name("gDynamicBakesAndWetness", &[1.0, 1.0, 0.0, 0.0]);
-        m.set_by_name("gReflectionMipCount", &[4.0]);
-    }
-    // Cascaded shadows: an identity-ish transform with tiny scale so every shadow test passes
-    // against the 1x1 "depth 1.0" texture and the derivatives stay finite.
-    if let Some(m) = globals.get_mut("csmshader") {
-        let mut v = [0.0f32; 48];
-        v[0] = 1.0; v[5] = 1.0; v[10] = 1.0;            // rows 0..2: rotation
-        for r in 4..8 { v[r * 4] = 1e-3; v[r * 4 + 1] = 1e-3; v[r * 4 + 2] = 1e-3; }  // cascade scales
-        m.set_by_name("gCSMShaderVars_shared", &v);
-        m.set_by_name("gCSMResolution", &[1.0, 1.0, 1.0, 1.0]);
     }
     // Debug: VESPUCCI_ONES_VAR=<cbuffer>:<var> sets one variable to all 1.0.
     if let Ok(spec) = std::env::var("VESPUCCI_ONES_VAR") {
