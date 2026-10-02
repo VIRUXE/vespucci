@@ -65,14 +65,23 @@ pub fn apply(
         m.set_by_name("gAmbientOcclusionEffect", &[1.0, 1.0, 1.0, 1.0]);
         m.set_by_name("gDynamicBakesAndWetness", &[1.0, 1.0, 0.0, 0.0]);
         m.set_by_name("gReflectionMipCount", &[4.0]);
+        // Alpha test for the `…CutOut` techniques: `PS_Textured_Zero_CutOut` discards when
+        // gAlphaRefVec0.x >= alpha (the .fxc default of 0 discards nothing, so cutout LOD
+        // billboards drew as solid quads). The game's value comes with the time cycle (#2).
+        m.set_by_name("gAlphaRefVec0", &[0.5, 0.5, 0.5, 0.5]);
+        m.set_by_name("gAlphaRefVec1", &[0.5, 0.5, 0.5, 0.5]);
     }
-    // Cascaded shadows: an identity-ish transform with tiny scale so every shadow test passes
-    // against the 1x1 "depth 1.0" texture and the derivatives stay finite.
+    // Cascaded shadows: a rotation with tiny cascade scales so every shadow test passes
+    // against the 1x1 "depth 1.0" texture and the derivatives stay finite. The rotation
+    // must have no zero entries: the foliage shaders divide by the Jacobian of the shadow
+    // coordinates, and an axis-aligned mapping makes it exactly 0 on camera-facing quads.
     if let Some(m) = globals.get_mut("csmshader") {
         let mut v = [0.0f32; 48];
-        v[0] = 1.0;
-        v[5] = 1.0;
-        v[10] = 1.0;
+        let rot = glam::Mat3::from_axis_angle(Vec3::new(1.0, 1.0, 1.0).normalize(), 1.0);
+        for r in 0..3 {
+            let row = rot.row(r);
+            v[r * 4..r * 4 + 3].copy_from_slice(&[row.x, row.y, row.z]);
+        }
         for r in 4..8 {
             v[r * 4] = 1e-3;
             v[r * 4 + 1] = 1e-3;

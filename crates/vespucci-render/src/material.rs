@@ -122,6 +122,46 @@ fn apply_fxc_defaults(block: &mut CBufferBlock, fxc: &FxcFile, cbuffer_name: &st
     }
 }
 
+/// The sampler states a draw uses until the `.fxc` sampler states are applied (#6):
+/// one filtered wrap sampler for textures, the comparison sampler for shadow maps,
+/// and point + clamp for tint palettes (one colour per texel; wrap blends the real
+/// colour in column 0 with the pink filler in column 255).
+pub struct Samplers {
+    pub default: ComPtr<ID3D11SamplerState>,
+    pub comparison: ComPtr<ID3D11SamplerState>,
+    pub palette: ComPtr<ID3D11SamplerState>,
+}
+
+impl Samplers {
+    pub fn new(dev: &Device) -> Result<Samplers> {
+        Ok(Samplers {
+            default: dev.create_sampler(
+                D3D11_FILTER_ANISOTROPIC,
+                D3D11_TEXTURE_ADDRESS_WRAP,
+                16,
+            )?,
+            comparison: dev.create_comparison_sampler()?,
+            palette: dev.create_sampler(
+                D3D11_FILTER_MIN_MAG_MIP_POINT,
+                D3D11_TEXTURE_ADDRESS_CLAMP,
+                1,
+            )?,
+        })
+    }
+
+    /// The sampler for a binding, by its name in the shader.
+    pub fn for_binding(&self, name: &str) -> &ComPtr<ID3D11SamplerState> {
+        let lower = name.to_lowercase();
+        if lower.contains("shadow") {
+            &self.comparison
+        } else if lower.contains("tintpalette") {
+            &self.palette
+        } else {
+            &self.default
+        }
+    }
+}
+
 pub struct BoundCBuffer {
     pub stage: Stage,
     pub slot: u32,
@@ -147,7 +187,7 @@ pub struct Material {
     pub ps: Rc<PixelStage>,
     pub cbuffers: Vec<BoundCBuffer>,
     pub textures: Vec<BoundTexture>,
-    /// (stage, slot, binding name); names containing "shadow" get the comparison sampler.
+    /// (stage, slot, binding name); the name picks the state, see [`Samplers::for_binding`].
     pub samplers: Vec<(Stage, u32, String)>,
     pub params_applied: usize,
     pub params_unmatched: Vec<String>,
@@ -155,6 +195,9 @@ pub struct Material {
     pub bucket: u8,
     /// Material cbuffer variables the engine fills per frame: (cbuffer index, name hash, value).
     pub frame_vars: Vec<(usize, u32, FrameVar)>,
+    /// `_tnt` shaders: (cbuffer index, hash of `tintPaletteSelector`, palette rows), so the
+    /// entity's tint picks a palette row per draw ([`Material::set_tint`]).
+    pub tint_var: Option<(usize, u32, u32)>,
 }
 
 impl Material {
@@ -254,6 +297,7 @@ impl Material {
 
         let mut bound_textures = Vec::new();
         let mut samplers = Vec::new();
+        let mut palette_rows = None;
         for (stage, rdef) in [
             (Stage::Vertex, &vs.stage.rdef),
             (Stage::Pixel, &ps.stage.rdef),
@@ -294,6 +338,9 @@ impl Material {
                                         Err(e) => log::warn!("{name}: {e:#}"),
                                     }
                                 }
+                                if found && b.name.eq_ignore_ascii_case("TintPaletteSampler") {
+                                    palette_rows = textures.size(*name_hash).map(|(_, h)| h);
+                                }
                             }
                         }
                         bound_textures.push(BoundTexture {
@@ -328,6 +375,23 @@ impl Material {
             }
         }
 
+        // The palette row selector, when the shader has one and the palette was found.
+        let selector = joaat("tintPaletteSelector");
+        let tint_var = palette_rows.and_then(|rows| {
+            cbuffers.iter().enumerate().find_map(|(i, c)| {
+                c.block
+                    .as_ref()
+                    .is_some_and(|b| c.global.is_none() && b.has(selector))
+                    .then_some((i, selector, rows))
+            })
+        });
+        if let Some((i, _, rows)) = tint_var {
+            log::debug!(
+                "{shader_name}: tint palette with {rows} rows, selector in {}",
+                cbuffers[i].block.as_ref().map_or("?", |b| b.name.as_str())
+            );
+        }
+
         Ok(Material {
             shader_name: shader_name.to_string(),
             technique: technique.to_string(),
@@ -340,17 +404,24 @@ impl Material {
             params_unmatched,
             bucket: fx.render_bucket,
             frame_vars,
+            tint_var,
         })
     }
 
+    /// Selects the palette row for an entity's tint: the `_tnt` vertex shader uses
+    /// `tintPaletteSelector.x` directly as the V coordinate, so the row centre is
+    /// `(tint + 0.5) / rows`. No-op for materials without a palette.
+    pub fn set_tint(&mut self, tint: u32) {
+        if let Some((i, hash, rows)) = self.tint_var {
+            let v = (tint.min(rows - 1) as f32 + 0.5) / rows as f32;
+            if let Some(b) = self.cbuffers[i].block.as_mut() {
+                b.set_f32(hash, &[v]);
+            }
+        }
+    }
+
     /// Uploads dirty material buffers and binds everything for a draw.
-    pub fn bind(
-        &mut self,
-        dev: &Device,
-        globals: &mut Globals,
-        sampler: &ComPtr<ID3D11SamplerState>,
-        comparison: &ComPtr<ID3D11SamplerState>,
-    ) -> Result<()> {
+    pub fn bind(&mut self, dev: &Device, globals: &mut Globals, samplers: &Samplers) -> Result<()> {
         for &(i, hash, var) in &self.frame_vars {
             if let Some(b) = self.cbuffers[i].block.as_mut() {
                 match var {
@@ -378,12 +449,7 @@ impl Material {
             dev.set_shader_resource(t.stage, t.slot, &t.srv);
         }
         for (stage, slot, name) in &self.samplers {
-            let s = if name.to_lowercase().contains("shadow") {
-                comparison
-            } else {
-                sampler
-            };
-            dev.set_sampler(*stage, *slot, s);
+            dev.set_sampler(*stage, *slot, samplers.for_binding(name));
         }
         Ok(())
     }

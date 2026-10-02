@@ -4,7 +4,7 @@ use crate::camera::Camera;
 use crate::frustum::Frustum;
 use crate::globals_preview;
 use crate::layout::{LayoutCache, DUMMY_BYTES, DUMMY_SLOT};
-use crate::material::{Globals, Material};
+use crate::material::{Globals, Material, Samplers};
 use crate::shader_cache::ShaderCache;
 use crate::texture::TextureCache;
 use anyhow::{Context, Result};
@@ -146,7 +146,12 @@ impl Ctx<'_> {
 
     /// Dictionaries to search for a model's textures, nearest first: the
     /// archetype's, its parents, then a dictionary named after the model.
-    fn texture_sources(&mut self, archetype: u32, model_hash: u32) -> Vec<Rc<Vec<YtdTexture>>> {
+    /// Each with its file name, for the texture-source log.
+    fn texture_sources(
+        &mut self,
+        archetype: u32,
+        model_hash: u32,
+    ) -> Vec<(String, Rc<Vec<YtdTexture>>)> {
         let mut hashes = Vec::new();
         if let Some(a) = self.db.get(archetype) {
             if a.texture_dict_hash != 0 {
@@ -157,7 +162,13 @@ impl Ctx<'_> {
             hashes.push(model_hash);
         }
         hashes.extend(GLOBAL_TXDS.iter().map(|n| vespucci_game::joaat(n)));
-        hashes.into_iter().filter_map(|h| self.ytd(h)).collect()
+        hashes
+            .into_iter()
+            .filter_map(|h| {
+                let name = self.fs.by_hash("ytd", h)?.name.clone();
+                Some((name, self.ytd(h)?))
+            })
+            .collect()
     }
 
     fn model(&mut self, archetype: u32, mip_skip: u8) -> Option<Rc<std::cell::RefCell<GpuModel>>> {
@@ -219,15 +230,18 @@ impl Ctx<'_> {
             let embedded = &sg.textures;
             for fx in &sg.shaders {
                 let find = |h: u32| -> Option<YtdTexture> {
-                    embedded
-                        .iter()
-                        .find(|t| t.name_hash == h)
-                        .cloned()
-                        .or_else(|| {
-                            sources
-                                .iter()
-                                .find_map(|s| s.iter().find(|t| t.name_hash == h).cloned())
-                        })
+                    if let Some(t) = embedded.iter().find(|t| t.name_hash == h) {
+                        return Some(t.clone());
+                    }
+                    sources.iter().find_map(|(ytd, s)| {
+                        let t = s.iter().find(|t| t.name_hash == h)?;
+                        // `--log debug` answers "where did this texture come from?"
+                        log::debug!(
+                            "texture {} from {ytd} for model {hash:#010x} (archetype {archetype:#010x})",
+                            t.name
+                        );
+                        Some(t.clone())
+                    })
                 };
                 let built = (|| -> Result<Material> {
                     let program = self.shaders.get(self.fs, fx.name_hash)?;
@@ -425,6 +439,8 @@ struct Draw {
     name: String,
     world: Mat4,
     distance: f32,
+    /// `CEntityDef::tintValue`: the palette row for `_tnt` materials.
+    tint: u32,
 }
 
 /// Which pass a bucket is drawn in.
@@ -458,8 +474,7 @@ pub fn render_world(
     let rt = dev.create_render_target(opts.width, opts.height, DXGI_FORMAT_R16G16B16A16_FLOAT)?;
     let depth = dev.create_depth_target(opts.width, opts.height)?;
     let rasterizer = dev.create_rasterizer(D3D11_CULL_NONE, false, false)?;
-    let sampler = dev.create_sampler(D3D11_FILTER_ANISOTROPIC, D3D11_TEXTURE_ADDRESS_WRAP, 16)?;
-    let comparison = dev.create_comparison_sampler()?;
+    let samplers = Samplers::new(dev)?;
     // Reversed-Z: nearer is greater.
     let depth_write = dev.create_depth_state(true, D3D11_COMPARISON_GREATER)?;
     let depth_test_eq = dev.create_depth_state(false, D3D11_COMPARISON_GREATER_EQUAL)?;
@@ -587,6 +602,7 @@ pub fn render_world(
             },
             world,
             distance: inst.distance,
+            tint: inst.tint,
         });
     }
     ctx.report.texture_bytes = ctx.textures.uploaded_bytes;
@@ -662,7 +678,8 @@ pub fn render_world(
             continue;
         };
         dev.set_pipeline(&g.layout, &material.vs.shader, &material.ps.shader);
-        material.bind(dev, &mut ctx.globals, &sampler, &comparison)?;
+        material.set_tint(d.tint);
+        material.bind(dev, &mut ctx.globals, &samplers)?;
         dev.set_vertex_buffer(0, &g.vb, g.stride);
         dev.set_index_buffer(&g.ib, g.index_format);
         dev.draw_indexed(g.index_count);
@@ -699,7 +716,8 @@ pub fn render_world(
                 continue;
             };
             dev.set_pipeline(&g.layout, &material.vs.shader, &id_ps);
-            material.bind(dev, &mut ctx.globals, &sampler, &comparison)?;
+            material.set_tint(d.tint);
+            material.bind(dev, &mut ctx.globals, &samplers)?;
             let id = ((di as u32 + 1) << 8) | (gi as u32).min(255);
             let mut bytes = [0u8; 16];
             bytes[..4].copy_from_slice(&id.to_le_bytes());

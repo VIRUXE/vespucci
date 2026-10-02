@@ -24,6 +24,7 @@ pub fn run(
     cull: bool,
     wireframe: bool,
     mip_skip: u8,
+    tint: u32,
     out: &Path,
     dump_binding: Option<&Path>,
 ) -> Result<()> {
@@ -209,6 +210,7 @@ pub fn run(
         cull,
         wireframe,
         mip_skip,
+        tint,
         background: [0.25, 0.25, 0.28, 1.0],
         sun_sign: if flip_sun { -1.0 } else { 1.0 },
     };

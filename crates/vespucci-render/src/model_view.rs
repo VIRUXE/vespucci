@@ -2,7 +2,7 @@
 
 use crate::camera::Camera;
 use crate::layout::{LayoutCache, DUMMY_BYTES, DUMMY_SLOT};
-use crate::material::{Globals, Material};
+use crate::material::{Globals, Material, Samplers};
 use crate::shader_cache::ShaderCache;
 use crate::texture::TextureCache;
 use anyhow::{Context, Result};
@@ -25,6 +25,8 @@ pub struct ModelViewOptions {
     pub cull: bool,
     pub wireframe: bool,
     pub mip_skip: u8,
+    /// Palette row for `_tnt` materials.
+    pub tint: u32,
     pub background: [f32; 4],
     /// +1 or -1: which way `gDirectionalLight` points (settled empirically).
     pub sun_sign: f32,
@@ -69,8 +71,7 @@ pub fn render_drawable(
         false,
         opts.wireframe,
     )?;
-    let sampler = dev.create_sampler(D3D11_FILTER_ANISOTROPIC, D3D11_TEXTURE_ADDRESS_WRAP, 16)?;
-    let comparison = dev.create_comparison_sampler()?;
+    let samplers = Samplers::new(dev)?;
     let mut textures = TextureCache::new(dev)?;
     let mut globals = Globals::new();
     let mut layouts = LayoutCache::new();
@@ -325,7 +326,8 @@ pub fn render_drawable(
     for g in &geos {
         let material = materials[g.material].as_mut().unwrap();
         dev.set_pipeline(&g.layout, &material.vs.shader, &material.ps.shader);
-        material.bind(dev, &mut globals, &sampler, &comparison)?;
+        material.set_tint(opts.tint);
+        material.bind(dev, &mut globals, &samplers)?;
         dev.set_vertex_buffer(0, &g.vb, g.stride);
         dev.set_index_buffer(&g.ib, g.index_format);
         dev.draw_indexed(g.index_count);

@@ -77,7 +77,7 @@ scripts/golden.sh            # renders tests/golden/*.png and compares (PSNR >= 
 scripts/golden.sh --update   # re-freeze after an intentional rendering change
 ```
 
-lavapipe is deterministic, so model renders match their goldens bit for bit. World renders group draws by model address and can differ by a few decal pixels between runs (~60 dB), which the threshold allows.
+The goldens are hardware renders (see the Windows section); on lavapipe pass `WORLD_PSNR=30 MODEL_PSNR=30`. World renders group draws by model address and can differ by a few decal pixels between runs (~60 dB), which the threshold allows.
 
 ## Windows
 
@@ -112,7 +112,7 @@ Notes from that first run:
 
 - **bindgen must be 0.73 or newer.** With mingw-w64 14 headers and libclang 22, bindgen 0.71 generates every COM interface (`ID3D11Device`, `IUnknown`, …) as an opaque `{ _address: u8 }` struct, so `com_call!` fails with "no field `lpVtbl`". `Cargo.lock` pins 0.73; do not downgrade.
 - **GPU choice.** D3D11's default adapter on a laptop is often the iGPU. The device is created on the hardware adapter with the most dedicated video memory; `VESPUCCI_ADAPTER=<index or name substring>` overrides, and `doctor --gpu --log debug` lists what DXGI enumerates.
-- **Goldens.** `tests/golden/*.png` are lavapipe renders. On hardware the bag goldens match (59-60 dB) but the barrier (thin cutout geometry) lands at 35 dB and the world scenes at 31-34 dB, because anisotropic filtering, mip selection and alpha-tested edges differ between a software and a hardware rasteriser. `WORLD_PSNR=30 MODEL_PSNR=30 scripts/golden.sh` from Git Bash passes; a separate hardware golden set is not kept.
+- **Goldens.** `tests/golden/*.png` are frozen on this PC (RTX 3050) since 2026-10-03, with `scripts/golden.sh --update` from Git Bash. Against them, lavapipe renders land around 35 dB on thin cutout props and 31-34 dB on the world scenes, because anisotropic filtering, mip selection and alpha-tested edges differ between a software and a hardware rasteriser: on Linux run `WORLD_PSNR=30 MODEL_PSNR=30 scripts/golden.sh`. (Before that date the goldens were lavapipe renders, and the numbers were the same the other way round: bag 59-60 dB, barrier 35 dB, world 31-34 dB.)
 - `cargo test --release` passes (with `VESPUCCI_GAME` set, the game-file tests too). `rustfmt` is a separate component on the GNU toolchain: `rustup component add rustfmt --toolchain stable-x86_64-pc-windows-gnu`.
 - Timing on the RTX 3050: device 0.05-0.8 s, beach render 1.5 s, whole command 3.3 s; peak working set 526 MB (reported as `peak_rss_mb`, measured with `GetProcessMemoryInfo`).
 

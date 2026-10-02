@@ -40,6 +40,18 @@ impl YmapNode {
     pub const CONTENT_CRITICAL: u32 = 512;
     pub const CONTENT_GRASS: u32 = 1024;
 
+    /// Whether a point is inside this map's streaming extents: the entity
+    /// extents grown by the entities' lodDists, which is the box the game
+    /// streams the map in for.
+    pub fn streams_at(&self, c: Vec3) -> bool {
+        c.x >= self.streaming_min.x
+            && c.x <= self.streaming_max.x
+            && c.y >= self.streaming_min.y
+            && c.y <= self.streaming_max.y
+            && c.z >= self.streaming_min.z
+            && c.z <= self.streaming_max.z
+    }
+
     /// Whether a sphere (world space) touches this map's entity extents.
     pub fn touches_sphere(&self, c: Vec3, r: f32) -> bool {
         let dx = (self.entities_min.x - c.x)
@@ -178,5 +190,20 @@ impl YmapTree {
             .iter()
             .filter(|n| n.touches_sphere(centre, radius))
             .collect()
+    }
+
+    /// Maps the game would stream for a camera at `at`: streaming extents containing it.
+    pub fn streaming_at(&self, at: Vec3) -> Vec<&YmapNode> {
+        self.nodes.iter().filter(|n| n.streams_at(at)).collect()
+    }
+
+    /// Index of a map in `nodes`, by name hash.
+    pub fn index_of(&self, name_hash: u32) -> Option<u32> {
+        self.by_hash.get(&name_hash).copied()
+    }
+
+    /// The maps whose `parent` is the map at `index`.
+    pub fn child_maps(&self, index: u32) -> &[u32] {
+        self.children.get(&index).map_or(&[], |v| v.as_slice())
     }
 }

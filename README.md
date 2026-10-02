@@ -14,7 +14,7 @@ Native Direct3D 11 on Windows. Headless on Linux through DXVK, with no GPU requi
 
 ![Vespucci Beach rendered by Vespucci on a CPU, through the game's shaders](docs/images/vespucci_beach_overview.png)
 
-<p align="center"><sub>Vespucci Beach, 1280×720, rendered on a 2-core laptop CPU (lavapipe) in about five seconds. Every pixel comes from the game's own compiled shaders and materials.</sub></p>
+<p align="center"><sub>Vespucci Beach, 1280×720, 1,989 entities, rendered in about three seconds on a laptop GPU (RTX 3050) — or in a few more on a 2-core CPU through lavapipe, with no GPU at all. Every pixel comes from the game's own compiled shaders and materials.</sub></p>
 
 ## What this is
 
@@ -36,7 +36,7 @@ The render core is at milestone 4 of 6. What works today, all headless on Linux:
 | ✅ Game access | Keys derived from your `GTA5.exe`, every `.rpf` (nested, 92 DLC packs in load order, 389k files), story-mode vs. Online map sets from the DLC change sets |
 | ✅ Formats | Drawables (`.ydr`/`.ydd`/`.yft`), textures (`.ytd`, BC1–BC7), maps and archetypes (`.ymap`/`.ytyp`, 159k archetypes), the game's `.fxc` shader containers and DXBC reflection (696 shaders, 21k blobs, zero failures) |
 | ✅ One model | `render-model` draws any prop with the game's shader, every cbuffer and texture bound from the model's own material parameters, binding report as JSON |
-| ✅ Streamed world | `render` streams the map around a camera: LOD hierarchy, time-of-day objects, script-only maps filtered, decals and alpha in the right passes, HDR + tonemap, a draw-id picking pass for debugging (`--pick`). Vespucci Beach at 1280×720: 1,528 entities, 1,414 draws, 838 MB RSS, ~5 s |
+| ✅ Streamed world | `render` streams the map around a camera: LOD hierarchy, time-of-day objects, script-only maps filtered, decals and alpha in the right passes, HDR + tonemap, a draw-id picking pass for debugging (`--pick`). Vespucci Beach at 1280×720: 1,989 entities, 2,362 draws, 550 MB, 3.4 s on an RTX 3050 |
 | 🔜 M5 | Game-lit frame: sky, time cycle and weather, deferred lighting, post-processing, matched pass by pass against RenderDoc captures of the real game |
 | 🔜 M6 | The editor: select, move/rotate/scale with gizmos, undo, object browser, save as a mod; the same operations over MCP in headless mode |
 
@@ -49,7 +49,7 @@ Limitations you will notice in today's renders: no sky, no shadows, a constant p
 | ![Boardwalk, Del Perro pier in the distance](docs/images/vespucci_boardwalk.png) | ![Vespucci Beach town and pier](docs/images/vespucci_beach_town.png) |
 | Boardwalk, with the Del Perro pier and ferris wheel in the distance | The beach town from a rooftop: tennis courts, the pier, 2,136 streamed entities |
 
-These are preview-lit renders (M4). Visible defects, all diagnosed with the exact cause and fix in [docs/STATUS.md](docs/STATUS.md) and tracked as issues: pink tinted railings, cutout LOD billboards drawn solid, holes where a LOD parent hides while its children are out of range, and a few NaN pixels on tree-LOD billboards.
+These are preview-lit renders (M4): the geometry, LOD tree, materials, tints and cutouts are the game's; the sun, ambient and sky are placeholders until M5. What you can still spot, tracked as issues: buildings with interiors keep their LOD shell until interiors render (#19), some distant SLOD pieces have no terrain under them (#11), and LOD façades are as bright as the preview ambient makes them (#2).
 
 ![Vinewood sign](docs/images/vinewood_sign.png)
 
@@ -92,7 +92,7 @@ vespucci probe --pos=-1280,-1450,4 --radius 300        # what the game streams a
 vespucci shader normal_spec --reflect                   # cbuffers, textures, vertex inputs of a game shader
 vespucci texture prop_veg_palmfan_1.ytd --out tex/     # textures to PNG
 vespucci render-model prop_cs_heist_bag_01 --technique lightweightHighQuality0_draw --dump-binding bag.json
-vespucci render --pos=600,1262,332 --look=711,1198,352 --fov 40 --time 18:30 --radius 500 --out vinewood.png
+vespucci render --pos=560,1120,330 --look=711,1198,350 --fov 40 --time 18:30 --radius 400 --out vinewood.png
 ```
 
 Full reference: [docs/cli.md](docs/cli.md).

@@ -45,13 +45,18 @@ Both are Meta-format (`PRD0`/`PSO`) resources holding `CMapData` / `CMapTypes` s
 
 ## The LOD system
 
-Every entity has a `lodDist`. An entity is a candidate when the camera is closer than that. Entities form parent/child chains across LOD levels (HD ↔ LOD ↔ SLOD1 ↔ …): a parent carries `numChildren` and `childLodDist` (the distance at which its children stop). The rule Vespucci applies (and that reproduces what the game shows):
+Every entity has a `lodDist` (-1 means "the archetype's"). Entities form a tree across LOD levels (HD → LOD → SLOD1 → SLOD2 → SLOD3): `parentIndex` points at the parent, in the same map when that entry is a coarser level, otherwise in the map's parent map (`CMapData.parent`; `flags` bit 3 says so explicitly); a parent carries `numChildren` and `childLodDist` (-1 means half its own `lodDist`; 0 means it never steps aside for distance alone). The rule Vespucci applies, which is the one CodeWalker's renderer implements (`Renderer.RecurseAddVisibleLeaves`/`GetEntityChildren`), walked from the roots (entities without a parent):
 
 ```
-visible(e) = d < e.lodDist * scale  &&  !(e.numChildren > 0 && d < e.childLodDist * scale)
+root e:        drawn-or-descended only when d <= lodDist(e) * scale
+descend(e):    all of e's children are loaded (and drawable)
+               && (d <= childLodDist(e) * scale || some child c has d(c) <= lodDist(c) * scale)
+otherwise:     e is a leaf and is drawn — even when it is a handed-over child beyond its own lodDist
 ```
 
-So an HD building shows up close, vanishes at its `lodDist`, and its LOD parent (hidden while `d < childLodDist`) takes over. Orphan HD entities (no parent) simply obey their own distance. The streamer then culls by the archetype's bounding sphere against the view frustum and picks the drawable's own LOD level from its `lod_distances`.
+So an HD building shows while its LOD parent is within `childLodDist` (or the building is within its own `lodDist`), and the parent takes over beyond that; a parent whose children are not all loaded keeps drawing itself, which is what the game does while a child map is not streamed. Children Vespucci cannot draw yet (interior instances, entities without an archetype) count as not loaded, so the LOD shell of a building with an interior stays until interiors render. Orphan HD entities simply obey their own distance.
+
+Which maps are loaded: every ymap whose entity extents touch `--radius` around the camera, every ymap whose **streaming extents** contain the camera (the game's own rule — those extents are the entity extents grown by the entities' lodDists), all of their ancestor maps (the parents live there), and, for a loaded parent within its `childLodDist` that still misses children, the child maps of its map. `StreamStats` counts each group. The streamer then culls by the archetype's bounding sphere against the view frustum and picks the drawable's own LOD level from its `lod_distances`.
 
 Script-requested maps (`CMapData` flag bit 0) are left out by default, with one heuristic exception: maps named `*_morning`, `*_day`, `*_evening`, `*_night` (and their `_lod` twins) are the variants the game's scripts swap by time of day, so the one matching `--time` is included. Time archetypes are shown when their hour bit is set.
 

@@ -9,11 +9,13 @@ V=./target/release/vespucci
 WORLD_PSNR=${WORLD_PSNR:-35}
 MODEL_PSNR=${MODEL_PSNR:-40}
 OUT=tests/out/golden; mkdir -p "$OUT"
-render() { $V --log warn render-model "$1" --technique "$2" --out "$3" >/dev/null; }
+render() { local model=$1 technique=$2 out=$3; shift 3; $V --log warn render-model "$model" --technique "$technique" --out "$out" "$@" >/dev/null; }
+# model, technique, extra render-model arguments
 declare -A CASES=(
   [bag_unlit]="prop_cs_heist_bag_01 unlit_draw"
   [bag_lit]="prop_cs_heist_bag_01 lightweightHighQuality0_draw"
   [barrier_lit]="prop_barrier_work05 lightweightHighQuality0_draw"
+  [ladder_tnt]="vb_30_ladder_05 lightweightHighQuality0_draw --ytd vbblockgroup1a --size 1024x1024"
 )
 # World renders (M4): camera position, look-at. Compared at PSNR >= 35 dB.
 declare -A WORLD=(
@@ -28,8 +30,9 @@ check() { # name min_psnr
 }
 [ "${1:-}" = "--update" ] && UPDATE=1
 for name in "${!CASES[@]}"; do
-  read -r model technique <<<"${CASES[$name]}"
-  render "$model" "$technique" "$OUT/$name.png"
+  read -r model technique extra <<<"${CASES[$name]}"
+  # shellcheck disable=SC2086
+  render "$model" "$technique" "$OUT/$name.png" $extra
   check "$name" "$MODEL_PSNR"
 done
 for name in "${!WORLD[@]}"; do

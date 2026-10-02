@@ -106,11 +106,11 @@ vespucci render --pos=-420,-640,50 --look=-75,-818,130 --radius 1500 --max-draws
 ```
 vespucci render-model MODEL [--entry NAME] [--ytd DICT ...] [--lod high|med|low|vlow]
                       [--technique T ...] [--size WxH] [--yaw DEG] [--pitch DEG]
-                      [--cull] [--wireframe] [--mip-skip N] [--transpose] [--flip-sun]
+                      [--cull] [--wireframe] [--mip-skip N] [--tint N] [--transpose] [--flip-sun]
                       [--dump-binding FILE.json] --out model.png
 ```
 
-`MODEL` is a name (`prop_cs_heist_bag_01`) or a game path. For `.ydd`/`.yft`, `--entry` picks the drawable. Textures come from the model's embedded dictionary and the archetype's dictionary chain; `--ytd` adds more (earlier wins; `mapdetail` holds the shared detail maps). `--technique` lists candidates most-wanted first (repeat the flag per candidate), default `unlit_draw` then `draw`; use `lightweightHighQuality0_draw` or `lightweight0_draw` for the lit look. The camera orbits the bounding sphere. Output is linear (no tonemap), so lit renders look dark; this command exists to check binding, not beauty. `--dump-binding` writes every cbuffer, texture and sampler binding and which material parameters matched, the first thing to read when a model looks wrong.
+`MODEL` is a name (`prop_cs_heist_bag_01`) or a game path. For `.ydd`/`.yft`, `--entry` picks the drawable. Textures come from the model's embedded dictionary and the archetype's dictionary chain; `--ytd` adds more (earlier wins; `mapdetail` holds the shared detail maps). `--tint` is the palette row for `_tnt` materials (what an entity's `tintValue` selects in the world). `--technique` lists candidates most-wanted first (repeat the flag per candidate), default `unlit_draw` then `draw`; use `lightweightHighQuality0_draw` or `lightweight0_draw` for the lit look. The camera orbits the bounding sphere. Output is linear (no tonemap), so lit renders look dark; this command exists to check binding, not beauty. `--dump-binding` writes every cbuffer, texture and sampler binding and which material parameters matched, the first thing to read when a model looks wrong.
 
 ## `texture` — dump textures as PNG
 

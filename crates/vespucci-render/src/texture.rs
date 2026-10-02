@@ -43,7 +43,12 @@ pub fn upload(dev: &Device, t: &YtdTexture, skip: u8) -> Result<ComPtr<ID3D11Sha
     };
     let levels = t.levels.max(1);
     let data = to_dds_layout(t.format, t.width, t.height, t.stride, levels, &t.pixel_data);
-    let skip = skip.min(levels - 1);
+    // Tiny textures (tint palettes are 256x4, addressed by row) keep their full size.
+    let skip = if t.width.min(t.height) <= 16 {
+        0
+    } else {
+        skip.min(levels - 1)
+    };
     let mut mips: Vec<(&[u8], u32)> = Vec::new();
     let (mut w, mut h) = (t.width, t.height);
     let mut at = 0usize;
@@ -81,6 +86,8 @@ pub fn solid(dev: &Device, rgba: [u8; 4]) -> Result<ComPtr<ID3D11ShaderResourceV
 /// Textures by name hash, uploaded on first use.
 pub struct TextureCache {
     srvs: HashMap<u32, ComPtr<ID3D11ShaderResourceView>>,
+    /// Width and height of the game texture behind each entry (before any mip skip).
+    sizes: HashMap<u32, (u32, u32)>,
     pub missing: ComPtr<ID3D11ShaderResourceView>,
     /// For engine-owned inputs without a material parameter (reflection map, fog
     /// rays, ...): a flat dim sky colour, so reflections read as "sky" not magenta.
@@ -104,6 +111,7 @@ impl TextureCache {
             .unwrap_or([77, 102, 140, 255]);
         Ok(TextureCache {
             srvs: HashMap::new(),
+            sizes: HashMap::new(),
             missing: solid(dev, [255, 0, 255, 255])?,
             engine: solid(dev, engine_rgba)?,
             unshadowed: dev.create_srv(&depth_one)?,
@@ -113,6 +121,11 @@ impl TextureCache {
 
     pub fn get(&self, name_hash: u32) -> Option<&ComPtr<ID3D11ShaderResourceView>> {
         self.srvs.get(&name_hash)
+    }
+
+    /// (width, height) of an uploaded texture, as the game stores it.
+    pub fn size(&self, name_hash: u32) -> Option<(u32, u32)> {
+        self.sizes.get(&name_hash).copied()
     }
 
     pub fn insert(
@@ -125,6 +138,8 @@ impl TextureCache {
             let srv = upload(dev, t, skip)?;
             self.uploaded_bytes += t.pixel_data.len();
             self.srvs.insert(t.name_hash, srv);
+            self.sizes
+                .insert(t.name_hash, (t.width as u32, t.height as u32));
         }
         Ok(&self.srvs[&t.name_hash])
     }

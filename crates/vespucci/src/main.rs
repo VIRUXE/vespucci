@@ -175,6 +175,9 @@ enum Cmd {
         /// Drop this many top mip levels of every texture
         #[arg(long, default_value_t = 0)]
         mip_skip: u8,
+        /// Palette row for `_tnt` materials (an entity's tintValue)
+        #[arg(long, default_value_t = 0)]
+        tint: u32,
         #[arg(long, default_value = "model.png")]
         out: PathBuf,
         /// Write the material binding report as JSON
@@ -335,6 +338,7 @@ fn main() -> Result<()> {
             cull,
             wireframe,
             mip_skip,
+            tint,
             out,
             dump_binding,
         } => render_model::run(
@@ -352,6 +356,7 @@ fn main() -> Result<()> {
             cull,
             wireframe,
             mip_skip,
+            tint,
             &out,
             dump_binding.as_deref(),
         ),

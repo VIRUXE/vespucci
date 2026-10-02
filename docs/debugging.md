@@ -15,12 +15,13 @@ All are read at run time by the release binary; none change the output unless se
 | `VESPUCCI_ENGINE_TEX=r,g,b` | both | Colour (0–255) of the stand-in bound to engine-supplied textures. |
 | `VESPUCCI_MINLOD=n`, `VESPUCCI_MAXLOD=n` | both | Clamp every sampler to a mip range (`0`/`0` = top level only). |
 | `VESPUCCI_PROBE=x,y` | `render` | Print the linear HDR value of one pixel before tonemapping. |
-| `VESPUCCI_TRACE_ENTITY=substring` | `render` | Log the LOD decision (distance, lodDist with `(arch)` when taken from the archetype, childLodDist, children, level, parent, tint, map) of every entity whose model name matches; empty = every entity. |
+| `VESPUCCI_TRACE_ENTITY=substring` | `render` | Log the LOD decision of every visited entity whose model name matches (`.` = every entity): `#index`, map, distance, lodDist with `(arch)` when taken from the archetype, childLodDist, linked/needed children, level, the resolved parent as `index@map` (or why it is unlinked), tint, position, the decision (`root beyond lodDist`, `children`, `leaf`, `leaf (forced beyond lodDist)`, `leaf (children not all loaded)`, with `not drawn: …` when the emit stage dropped it) and `kids=[#i@map …]`. |
+| `VESPUCCI_NO_STREAMING_EXTENTS=1` | `render` | Load only the maps in `--radius` (plus parents), not the maps whose streaming extents hold the camera; for A/B comparisons of the map selection. |
 | `VESPUCCI_ALL_MODELS=1` | `render-model` | Also draw models with render-mask bit 0 clear (shadow proxies). |
 | `VESPUCCI_ONES=<cbuffer>\|material` | `render-model` | Fill a whole global cbuffer (or all material cbuffers) with 1.0. |
 | `VESPUCCI_ONES_VAR=cb:var[:index]` | `render-model` | Set one global variable (or one element) to 1.0, the rest of it to 0. |
 
-Log levels: `--log debug` explains every skipped map (script flags, time variants), model (missing file, no drawables), material (no technique) and texture (name, binding, shader, archetype). `--log trace` prints one line per drawn instance: model file, distance, LOD level and distance, bounding-box size, map, entity and archetype flags, time flags, and the applied material parameters with their values.
+Log levels: `--log debug` explains every skipped map (script flags, time variants), model (missing file, no drawables), material (no technique) and texture (name, binding, shader, archetype), says which dictionary each texture came from (`texture X from Y.ytd for model …`, the first time it is needed), which materials have a tint palette, and which parents within their childLodDist still miss children. `--log trace` prints one line per drawn instance: model file, distance, LOD level and distance, bounding-box size, map, entity and archetype flags, time flags, and the applied material parameters with their values.
 
 ## Workflows
 
@@ -34,7 +35,9 @@ Log levels: `--log debug` explains every skipped map (script flags, time variant
 
 **Is the texture itself right?** `vespucci texture NAME --out dir` decodes it on the CPU; compare with what the GPU samples by pinning `VESPUCCI_MINLOD`/`MAXLOD`. (This ruled out mip-chain corruption on the palm bark.)
 
-**What does the shader do with it?** `vespucci shader NAME --reflect` for bindings and layouts, `--blob ps:N --out x.dxbc` then `vkd3d-compiler -b d3d-asm x.dxbc -o x.asm` for the code. Look for the `sample` of the texture slot and follow the registers. Most facts in [binding.md](binding.md) came from this.
+**What does the shader do with it?** `vespucci shader NAME --reflect` for bindings and layouts, `--blob ps:N --out x.dxbc` then `vkd3d-compiler -b d3d-asm x.dxbc -o x.asm` (Linux) or `python scripts/disasm.py x.dxbc > x.asm` (Windows, uses the system `d3dcompiler_47.dll`) for the code. Look for the `sample` of the texture slot and follow the registers. Most facts in [binding.md](binding.md) came from this. (This settled how `_tnt` palettes are addressed: `COLOR0.b` picks the column, `tintPaletteSelector.x` the row.)
+
+**Which entities changed between two runs?** `VESPUCCI_TRACE_ENTITY=. … 2>&1 | rg "entity #" > a.log` twice (for example once with `VESPUCCI_NO_STREAMING_EXTENTS=1`) and diff the `leaf` lines by `#index`, map and name; the `kids=[…]` list on a parent shows which children were linked. (This showed that a skyline "lost" by the streaming-extent map selection was SLOD1 pieces 600 m away that the game would not stream either.)
 
 **One model in isolation.** `vespucci render-model NAME --technique lightweight0_draw --dump-binding b.json` renders it with an orbit camera and writes every cbuffer, texture and sampler binding, which parameters matched, and which inputs got dummy slots.
 

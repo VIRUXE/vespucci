@@ -16,6 +16,6 @@ pub use archetypes::{ArchetypeDb, ArchetypeRec};
 pub use entities::{parse_entities, CarGenerator, Entity, LodLevel, YmapEntities};
 pub use mapset::{MapSet, Mode};
 pub use rage_formats::Vec3;
-pub use streamer::{collect, visible, Instance, StreamOptions, StreamStats};
+pub use streamer::{child_lod_dist, collect, lod_dist, Instance, StreamOptions, StreamStats};
 pub use txd::TxdParents;
 pub use ymaps::{YmapNode, YmapTree};

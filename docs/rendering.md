@@ -16,7 +16,7 @@ camera ──► streamer (maps in radius → entities → LOD rule → instance
 
 ### Streaming and budgets
 
-`collect()` reads every ymap whose entity extents touch the sphere `--radius` around the camera (default 300 m). Maps are parsed in parallel; the LOD rule in [formats.md](formats.md) decides which entities are candidates; the result is sorted by distance so that, when a budget is hit, the nearest things are the ones drawn. Three limits apply while loading: `--max-draws` (instances), `--budget-mb` (geometry + texture bytes uploaded) and `--mip-skip` (top mip levels dropped at <100 m, <500 m and beyond). Models and texture dictionaries are cached per render by hash, so a prop used 200 times is loaded once.
+`collect()` reads every ymap whose entity extents touch the sphere `--radius` around the camera (default 300 m) and every ymap whose streaming extents contain the camera (what the game itself would have loaded), plus their ancestors. Maps are parsed in parallel and linked into the LOD tree; the rule in [formats.md](formats.md), walked from the roots, decides which entities are drawn; the result is sorted by distance so that, when a budget is hit, the nearest things are the ones drawn. Three limits apply while loading: `--max-draws` (instances), `--budget-mb` (geometry + texture bytes uploaded) and `--mip-skip` (top mip levels dropped at <100 m, <500 m and beyond). Models and texture dictionaries are cached per render by hash, so a prop used 200 times is loaded once.
 
 ### Materials
 
@@ -27,11 +27,11 @@ For each `ShaderFX` in a drawable's shader group:
 3. The pass's VS and PS blobs become D3D11 shaders (cached by blob); their RDEF gives the cbuffers and bindings.
 4. Material cbuffers get the `.fxc` defaults, then the drawable's parameters by name hash. Engine cbuffers bind the shared `Globals`.
 5. Each texture binding is resolved through the material parameter of the same name to a texture name hash, looked up in the dictionaries listed in [formats.md](formats.md). Bindings with no material parameter are engine-supplied (`ReflectionSampler`, `FogRaySampler`) and get a flat stand-in; `gCSMShadowTexture` gets a 1×1 depth of 1.0 with a comparison sampler so every shadow test passes.
-6. Samplers: anisotropic 16, wrap, for everything except the shadow comparison sampler. The `.fxc` sampler-state annotations are not applied yet.
+6. Samplers: anisotropic 16, wrap, for everything except the shadow comparison sampler and the point + clamp sampler for tint palettes (`Samplers::for_binding`). The `.fxc` sampler-state annotations are not applied yet (#6). `_tnt` materials also get `tintPaletteSelector` set per draw from the entity's tint.
 
 ### Preview globals (`globals_preview.rs`)
 
-The forward techniques read per-frame engine constants that the real game fills from its time cycle: sun direction and colour, six ambient colours, fog parameters, ambient-occlusion and wetness factors, cascade-shadow matrices, screen size, and a global output scale. Vespucci sets constants that produce a plausible daylight look and, more importantly, avoid the values that produce NaN or black (fog start at 1e8 and non-zero scatter exponents; `globalScalars3.z = 1`; `gAmbientOcclusionEffect = 1`; identity-ish cascade matrices). Every value has a comment with why it exists.
+The forward techniques read per-frame engine constants that the real game fills from its time cycle: sun direction and colour, six ambient colours, fog parameters, ambient-occlusion and wetness factors, cascade-shadow matrices, screen size, and a global output scale. Vespucci sets constants that produce a plausible daylight look and, more importantly, avoid the values that produce NaN or black (fog start at 1e8 and non-zero scatter exponents; `globalScalars3.z = 1`; `gAmbientOcclusionEffect = 1`; a rotated, tiny-scale cascade transform; the cutout alpha reference `gAlphaRefVec0 = 0.5`). Every value has a comment with why it exists.
 
 ### Depth, colour, tonemap
 
@@ -43,7 +43,7 @@ Opaque draws are grouped by model so consecutive draws share shaders, layouts an
 
 ## What the output is and is not
 
-Done: geometry placement, LOD selection (including the archetype fallback for a map entity's lodDist of -1), materials and textures as the game binds them, alpha blend/decal ordering, detail maps, time-of-day object variants, script-map filtering, power-line cables, a draw-id picking pass (`--pick`, `--id-map`). Known gaps, diagnosed in [STATUS.md](STATUS.md): tint palettes sampled with the wrong sampler (pink railings), cutout alpha test reference not set (solid LOD billboards), LOD parents hidden while their children are out of range (holes), NaN pixels on tree-LOD billboards.
+Done: geometry placement, the game's LOD tree walked the way CodeWalker does it (parents hand over to loaded children, children drawn when handed over, streaming-extent map selection), materials and textures as the game binds them, tint palettes with the entity's tint, cutout alpha test, alpha blend/decal ordering, detail maps, time-of-day object variants, script-map filtering, power-line cables, a draw-id picking pass (`--pick`, `--id-map`). Known gaps are tracked as issues: a building with an interior keeps its LOD shell until interiors render (#19), distant SLOD pieces without terrain under them (#11), and the brightness of LOD façades, which is the preview ambient (#2).
 
 Not done (these are the differences you will see against a screenshot):
 
