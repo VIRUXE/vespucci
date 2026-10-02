@@ -31,7 +31,8 @@ pub fn load(game: &Path) -> Result<(GtaKeys, bool)> {
     if std::fs::create_dir_all(&entry).is_err() {
         return Ok((GtaKeys::extract_from_exe(&exe, None)?, false));
     }
-    let keys = GtaKeys::extract_from_exe(&exe, Some(&entry)).with_context(|| format!("recovering keys from {}", exe.display()))?;
+    let keys = GtaKeys::extract_from_exe(&exe, Some(&entry))
+        .with_context(|| format!("recovering keys from {}", exe.display()))?;
     Ok((keys, false))
 }
 
@@ -39,8 +40,17 @@ pub fn load(game: &Path) -> Result<(GtaKeys, bool)> {
 /// served stale keys.
 fn cache_entry(exe: &Path) -> Option<PathBuf> {
     let meta = std::fs::metadata(exe).ok()?;
-    let modified = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
-    Some(cache_root()?.join("keys").join(format!("{}-{modified}", meta.len())))
+    let modified = meta
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    Some(
+        cache_root()?
+            .join("keys")
+            .join(format!("{}-{modified}", meta.len())),
+    )
 }
 
 /// `$VESPUCCI_CACHE`, else `~/.cache/vespucci`.
@@ -56,7 +66,10 @@ pub fn cache_root() -> Option<PathBuf> {
 /// `ProductVersion` value of the PE version resource, plain UTF-16 in the file.
 pub fn exe_version(exe: &Path) -> Option<String> {
     let data = std::fs::read(exe).ok()?;
-    let key: Vec<u8> = "ProductVersion".encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let key: Vec<u8> = "ProductVersion"
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
     let start = data.windows(key.len()).position(|w| w == key.as_slice())? + key.len();
     let mut units = Vec::new();
     let mut pos = start;
@@ -72,6 +85,8 @@ pub fn exe_version(exe: &Path) -> Option<String> {
         units.push(unit);
     }
     let version = String::from_utf16(&units).ok()?;
-    let plausible = !version.is_empty() && version.chars().all(|c| c.is_ascii_digit() || c == '.') && version.contains('.');
+    let plausible = !version.is_empty()
+        && version.chars().all(|c| c.is_ascii_digit() || c == '.')
+        && version.contains('.');
     plausible.then_some(version)
 }

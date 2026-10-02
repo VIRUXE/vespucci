@@ -1,0 +1,108 @@
+# Building and running
+
+Vespucci is a Rust workspace. It renders through Direct3D 11: natively on Windows, and on Linux through [DXVK-native](https://github.com/doitsujin/dxvk) (D3D11 implemented on Vulkan, no Wine) with the lavapipe CPU driver or any Vulkan 1.3 GPU. Nothing from the game ships with the program; you point it at your own install.
+
+## Requirements
+
+| | Linux (headless) | Windows |
+|---|---|---|
+| Rust | stable (1.75 or newer; developed on 1.95) | same, cross-compiled from Linux with mingw-w64 |
+| Graphics | Vulkan 1.3 driver. lavapipe (`mesa-vulkan-drivers`) works on any CPU; this is what the project is developed on | Direct3D 11 (any GPU) |
+| DXVK-native | v3.1.1 built with the SDL3 backend (script below) | not needed |
+| bindgen | `clang` + `libclang-dev` (generates the D3D11 FFI at build time) | same, on the build machine |
+| Helper shaders | `vkd3d-compiler` (only to rebuild `shaders/*.hlsl`; the compiled DXBC is committed) | — |
+| Game | GTA V **Legacy** PC build (Steam/Rockstar/Epic), any version with NG-encrypted archives. Developed against 1.0.3889.0 | same |
+| Memory | 4 GB RAM is enough for 1280x720 renders (peak RSS ~0.8 GB) | — |
+
+The game directory is the one holding `GTA5.exe`, `common.rpf`, `x64a.rpf`… and `update/`. It is passed with `--game DIR` or `GTAV_PATH`.
+
+## Linux
+
+### One-time setup
+
+```sh
+scripts/setup-linux.sh
+```
+
+The script installs the apt packages, Rust if missing, builds DXVK-native v3.1.1 into `/opt/dxvk-native` (D3D11 + DXGI only, SDL3 window backend) and registers its library directory with the dynamic loader. It is idempotent. Override `DXVK_PREFIX`, `DXVK_VERSION`, `DXVK_SRC`, `JOBS`, or set `SKIP_WINDOWS=1` to leave out the mingw cross toolchain.
+
+What it does by hand, if you prefer:
+
+```sh
+sudo apt-get install build-essential clang libclang-dev pkg-config git meson ninja-build \
+    glslang-tools libsdl3-dev libvulkan1 vulkan-tools mesa-vulkan-drivers vkd3d-compiler
+git clone --recursive --branch v3.1.1 --depth 1 https://github.com/doitsujin/dxvk.git ~/src/dxvk-native
+cd ~/src/dxvk-native
+meson setup build.native --buildtype release --prefix /opt/dxvk-native --libdir lib/x86_64-linux-gnu \
+    -Denable_d3d8=false -Denable_d3d9=false -Denable_d3d10=false \
+    -Dnative_sdl3=enabled -Dnative_sdl2=disabled -Dnative_glfw=disabled
+ninja -C build.native -j3 && sudo ninja -C build.native install
+echo /opt/dxvk-native/lib/x86_64-linux-gnu | sudo tee /etc/ld.so.conf.d/dxvk-native.conf && sudo ldconfig
+```
+
+Why SDL3: DXVK needs a window-system backend even when nothing is shown, and SDL3 has an `offscreen` video driver. Why the `ld.so.conf` entry: `libdxvk_dxgi.so` is loaded by `libdxvk_d3d11.so`, and `RUNPATH` is not transitive, so the loader needs the directory (the binary itself carries a `DT_RPATH` from `.cargo/config.toml`).
+
+### Build
+
+```sh
+cargo build --release
+```
+
+`crates/vespucci-d3d11/build.rs` runs bindgen over DXVK's `d3d11.h`/`dxgi.h` from `/opt/dxvk-native/include` (or `$DXVK_NATIVE_PREFIX/include`) and links `dxvk_d3d11` and `dxvk_dxgi`. A full release build takes a few minutes; incremental builds are quick.
+
+### Run
+
+```sh
+export GTAV_PATH=/path/to/gtav
+./target/release/vespucci doctor --gpu --out /tmp/test.png
+./target/release/vespucci render --pos=-1280,-1450,4 --look=-1200,-1500,4 --out beach.png
+```
+
+The binary sets its own environment for headless use (`DXVK_WSI_DRIVER=SDL3`, `SDL_VIDEO_DRIVER=offscreen`, `VK_DRIVER_FILES` pointing at lavapipe, `DXVK_FILTER_DEVICE_NAME=llvmpipe`, quiet DXVK logging, shader caches under `~/.cache/vespucci/`) without overriding variables you already exported. To run other tools under the same conditions, `. scripts/vespucci-env.sh`.
+
+To use a real GPU instead of lavapipe, export `VK_DRIVER_FILES` for its ICD (or unset it to let the loader pick) and `DXVK_FILTER_DEVICE_NAME` to a substring of the device name. DXVK requires Vulkan 1.3; older Intel iGPUs (Haswell exposes 1.2) are rejected, which is why lavapipe is the default.
+
+### First run and caches
+
+- **Keys**: the first `vespucci` command derives the archive keys from your `GTA5.exe` (SHA-1 search for the AES key; NG tables from the `rpf-archive` crate's data) and caches them in `~/.cache/vespucci/keys-<sha256 of the exe>.bin`.
+- **Shader JIT**: lavapipe compiles every D3D11 pipeline on first use. A cold world render costs ~10 s more than a warm one; DXVK's state cache and Mesa's shader cache (both under `~/.cache/vespucci/`) make later runs fast.
+- **World index**: archetypes and the ymap tree are built from the game files on every run (about 1 s); there is no on-disk index yet.
+
+### Tests and goldens
+
+```sh
+cargo test --release -p vespucci-game -p vespucci-fxc -p vespucci-world   # no game needed (game-file tests skip)
+VESPUCCI_GAME=$GTAV_PATH cargo test --release                            # includes game-file tests
+scripts/golden.sh            # renders tests/golden/*.png and compares (PSNR >= 40 models, >= 35 world)
+scripts/golden.sh --update   # re-freeze after an intentional rendering change
+```
+
+lavapipe is deterministic, so model renders match their goldens bit for bit. World renders group draws by model address and can differ by a few decal pixels between runs (~60 dB), which the threshold allows.
+
+## Windows
+
+The supported path is cross-compiling from Linux with mingw-w64 (the setup script installs it):
+
+```sh
+rustup target add x86_64-pc-windows-gnu
+cargo build --release --target x86_64-pc-windows-gnu
+# -> target/x86_64-pc-windows-gnu/release/vespucci.exe
+```
+
+On Windows the same binary uses the system `d3d11.dll`/`dxgi.dll`, so DXVK is not involved and any GPU works. `vespucci.exe doctor --gpu` draws a test frame and reports the adapter. Building natively on Windows with the `x86_64-pc-windows-gnu` toolchain should work (bindgen needs LLVM installed and `LIBCLANG_PATH` set) but has not been exercised; MSVC is not supported because `build.rs` uses mingw's headers.
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `error while loading shared libraries: libdxvk_d3d11.so.0` | DXVK-native not installed where `.cargo/config.toml` expects (`/opt/dxvk-native/lib/x86_64-linux-gnu`), or `ldconfig` not run. |
+| `doctor` says no suitable Vulkan device | DXVK needs Vulkan 1.3. Install `mesa-vulkan-drivers` for lavapipe; check `VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json vulkaninfo --summary`. |
+| `game directory needed: --game DIR or $GTAV_PATH` | Point it at the folder containing `GTA5.exe`. |
+| Keys fail to derive | The exe must be the PC Legacy build (unpacked, not the Enhanced edition). `doctor` prints the build it found. |
+| bindgen cannot find `d3d11.h` | Linux: DXVK headers missing from the prefix. Windows target: `gcc-mingw-w64-x86-64` not installed. |
+| Everything renders black or magenta | Read [rendering.md](rendering.md) and [binding.md](binding.md); the debug switches in [debugging.md](debugging.md) bisect it quickly. |
+| Out of memory on large radii | Lower `--radius`, `--budget-mb`, `--max-draws`, or raise `--mip-skip`. lavapipe keeps all GPU resources in RAM. |
+
+## Repository bootstrap
+
+`scripts/github-bootstrap.sh` creates the labels, the milestones (M5, M6, After MVP) and the initial development issues on the GitHub repository with the `gh` CLI. It is idempotent: labels are updated in place, milestones and issues that already exist (by title) are skipped, so it is safe to re-run after adding new entries.

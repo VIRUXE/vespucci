@@ -66,7 +66,8 @@ impl GameFs {
             .enumerate()
             .map(|(i, path)| {
                 let mut out = Vec::new();
-                let archive = Archive::open(path, Some(&keys)).with_context(|| format!("opening {}", path.display()))?;
+                let archive = Archive::open(path, Some(&keys))
+                    .with_context(|| format!("opening {}", path.display()))?;
                 scan(&archive, i as u32, &[], Some(&keys), &mut out);
                 Ok(out)
             })
@@ -77,7 +78,14 @@ impl GameFs {
         }
         let mut by_path = HashMap::with_capacity(files.len());
         let mut by_hash = HashMap::with_capacity(files.len());
-        let mut fs = GameFs { root: root.to_path_buf(), keys, archives, files: Vec::new(), by_path: HashMap::new(), by_hash: HashMap::new() };
+        let mut fs = GameFs {
+            root: root.to_path_buf(),
+            keys,
+            archives,
+            files: Vec::new(),
+            by_path: HashMap::new(),
+            by_hash: HashMap::new(),
+        };
         for (i, f) in files.iter().enumerate() {
             by_path.insert(f.full_path(&fs), i as u32);
             by_hash.insert((f.ext.clone(), f.stem_hash), i as u32);
@@ -125,7 +133,9 @@ impl GameFs {
     }
 
     pub fn by_hash(&self, ext: &str, stem_hash: u32) -> Option<&FileLoc> {
-        self.by_hash.get(&(ext.to_lowercase(), stem_hash)).map(|&i| &self.files[i as usize])
+        self.by_hash
+            .get(&(ext.to_lowercase(), stem_hash))
+            .map(|&i| &self.files[i as usize])
     }
 
     /// The file's bytes: extracted, decrypted, decompressed; resources keep their RSC7 header.
@@ -134,15 +144,29 @@ impl GameFs {
         let top = Archive::open(&self.archives[loc.archive as usize], keys)?;
         let mut archive = top;
         for nested in &loc.nested {
-            let file = archive.find_file(nested).with_context(|| format!("nested archive {nested} not found"))?;
-            archive = archive.open_nested(file, keys).with_context(|| format!("opening nested {nested}"))?;
+            let file = archive
+                .find_file(nested)
+                .with_context(|| format!("nested archive {nested} not found"))?;
+            archive = archive
+                .open_nested(file, keys)
+                .with_context(|| format!("opening nested {nested}"))?;
         }
-        let file = archive.find_file(&loc.inner).with_context(|| format!("{} not found", loc.inner))?;
-        archive.extract(file, keys).with_context(|| format!("extracting {}", loc.inner))
+        let file = archive
+            .find_file(&loc.inner)
+            .with_context(|| format!("{} not found", loc.inner))?;
+        archive
+            .extract(file, keys)
+            .with_context(|| format!("extracting {}", loc.inner))
     }
 }
 
-fn scan(archive: &Archive, top: u32, nested: &[String], keys: Option<&GtaKeys>, out: &mut Vec<FileLoc>) {
+fn scan(
+    archive: &Archive,
+    top: u32,
+    nested: &[String],
+    keys: Option<&GtaKeys>,
+    out: &mut Vec<FileLoc>,
+) {
     for file in archive.list_files() {
         let name = file.name.to_lowercase();
         let inner = file.path.replace('\\', "/").to_lowercase();

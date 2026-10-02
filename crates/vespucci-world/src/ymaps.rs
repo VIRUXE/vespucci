@@ -42,9 +42,15 @@ impl YmapNode {
 
     /// Whether a sphere (world space) touches this map's entity extents.
     pub fn touches_sphere(&self, c: Vec3, r: f32) -> bool {
-        let dx = (self.entities_min.x - c.x).max(0.0).max(c.x - self.entities_max.x);
-        let dy = (self.entities_min.y - c.y).max(0.0).max(c.y - self.entities_max.y);
-        let dz = (self.entities_min.z - c.z).max(0.0).max(c.z - self.entities_max.z);
+        let dx = (self.entities_min.x - c.x)
+            .max(0.0)
+            .max(c.x - self.entities_max.x);
+        let dy = (self.entities_min.y - c.y)
+            .max(0.0)
+            .max(c.y - self.entities_max.y);
+        let dz = (self.entities_min.z - c.z)
+            .max(0.0)
+            .max(c.z - self.entities_max.z);
         dx * dx + dy * dy + dz * dz <= r * r
     }
 }
@@ -161,11 +167,16 @@ impl YmapTree {
     }
 
     pub fn get(&self, name_hash: u32) -> Option<&YmapNode> {
-        self.by_hash.get(&name_hash).map(|&i| &self.nodes[i as usize])
+        self.by_hash
+            .get(&name_hash)
+            .map(|&i| &self.nodes[i as usize])
     }
 
     /// Maps whose entity extents touch a sphere.
     pub fn touching(&self, centre: Vec3, radius: f32) -> Vec<&YmapNode> {
-        self.nodes.iter().filter(|n| n.touches_sphere(centre, radius)).collect()
+        self.nodes
+            .iter()
+            .filter(|n| n.touches_sphere(centre, radius))
+            .collect()
     }
 }

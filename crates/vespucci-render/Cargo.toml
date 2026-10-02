@@ -3,6 +3,10 @@ name = "vespucci-render"
 description = "Drawing the game's models with the game's own shaders: shader cache, material binding, GPU resources, frames"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
 license.workspace = true
 
 [dependencies]

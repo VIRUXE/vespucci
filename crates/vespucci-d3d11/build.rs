@@ -40,13 +40,21 @@ fn windows_include_dirs() -> Vec<PathBuf> {
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=wrapper.h");
-    for v in ["VESPUCCI_DXVK_INCLUDE", "VESPUCCI_DXVK_LIB", "VESPUCCI_D3D_INCLUDE"] {
+    for v in [
+        "VESPUCCI_DXVK_INCLUDE",
+        "VESPUCCI_DXVK_LIB",
+        "VESPUCCI_D3D_INCLUDE",
+    ] {
         println!("cargo:rerun-if-env-changed={v}");
     }
 
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let windows = target_os == "windows";
-    let includes = if windows { windows_include_dirs() } else { linux_include_dirs() };
+    let includes = if windows {
+        windows_include_dirs()
+    } else {
+        linux_include_dirs()
+    };
 
     let mut builder = bindgen::Builder::default()
         .header("wrapper.h")
@@ -65,7 +73,12 @@ fn main() {
         .blocklist_type("max_align_t");
     if windows {
         // Cross-compiling: tell clang about the target and mingw's header quirks.
-        builder = builder.clang_args(["--target=x86_64-w64-mingw32", "-D_WIN32_WINNT=0x0A00", "-DCINTERFACE", "-DCOBJMACROS"]);
+        builder = builder.clang_args([
+            "--target=x86_64-w64-mingw32",
+            "-D_WIN32_WINNT=0x0A00",
+            "-DCINTERFACE",
+            "-DCOBJMACROS",
+        ]);
     }
     let bindings = builder.generate().expect("bindgen failed on D3D11 headers");
     let out = PathBuf::from(env::var("OUT_DIR").unwrap()).join("bindings.rs");
@@ -78,7 +91,11 @@ fn main() {
         let lib = env::var("VESPUCCI_DXVK_LIB").unwrap_or_else(|_| {
             // meson installs into the multiarch libdir on Debian.
             let multiarch = "/opt/dxvk-native/lib/x86_64-linux-gnu";
-            if Path::new(multiarch).join("libdxvk_d3d11.so").exists() { multiarch.into() } else { "/opt/dxvk-native/lib".into() }
+            if Path::new(multiarch).join("libdxvk_d3d11.so").exists() {
+                multiarch.into()
+            } else {
+                "/opt/dxvk-native/lib".into()
+            }
         });
         println!("cargo:rustc-link-search=native={lib}");
         println!("cargo:rustc-link-lib=dylib=dxvk_d3d11");

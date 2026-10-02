@@ -26,11 +26,21 @@ impl CBufferBlock {
         let mut names = Vec::new();
         for v in &cb.vars {
             vars.insert(joaat(&v.name), (v.offset as usize, v.size as usize));
-            vars.insert(joaat(&v.name.to_lowercase()), (v.offset as usize, v.size as usize));
+            vars.insert(
+                joaat(&v.name.to_lowercase()),
+                (v.offset as usize, v.size as usize),
+            );
             names.push(v.name.clone());
         }
         let buffer = dev.create_buffer(&bytes, D3D11_BIND_CONSTANT_BUFFER, D3D11_USAGE_DYNAMIC)?;
-        Ok(CBufferBlock { name: cb.name.clone(), bytes, vars, names, buffer, dirty: true })
+        Ok(CBufferBlock {
+            name: cb.name.clone(),
+            bytes,
+            vars,
+            names,
+            buffer,
+            dirty: true,
+        })
     }
 
     pub fn has(&self, name_hash: u32) -> bool {
@@ -39,12 +49,17 @@ impl CBufferBlock {
 
     /// The variable name behind a hash (exact or lowercase), for logs.
     pub fn name_of(&self, name_hash: u32) -> Option<&str> {
-        self.names.iter().find(|n| joaat(n) == name_hash || joaat(&n.to_lowercase()) == name_hash).map(|s| s.as_str())
+        self.names
+            .iter()
+            .find(|n| joaat(n) == name_hash || joaat(&n.to_lowercase()) == name_hash)
+            .map(|s| s.as_str())
     }
 
     /// Writes floats at the variable; returns false when the buffer has no such variable.
     pub fn set_f32(&mut self, name_hash: u32, values: &[f32]) -> bool {
-        let Some(&(off, size)) = self.vars.get(&name_hash) else { return false };
+        let Some(&(off, size)) = self.vars.get(&name_hash) else {
+            return false;
+        };
         let n = values.len().min(size / 4);
         for (i, v) in values.iter().take(n).enumerate() {
             self.bytes[off + i * 4..off + i * 4 + 4].copy_from_slice(&v.to_le_bytes());
@@ -54,7 +69,9 @@ impl CBufferBlock {
     }
 
     pub fn set_u32(&mut self, name_hash: u32, values: &[u32]) -> bool {
-        let Some(&(off, size)) = self.vars.get(&name_hash) else { return false };
+        let Some(&(off, size)) = self.vars.get(&name_hash) else {
+            return false;
+        };
         let n = values.len().min(size / 4);
         for (i, v) in values.iter().take(n).enumerate() {
             self.bytes[off + i * 4..off + i * 4 + 4].copy_from_slice(&v.to_le_bytes());

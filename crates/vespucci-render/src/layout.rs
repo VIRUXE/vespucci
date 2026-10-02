@@ -51,11 +51,18 @@ pub fn component_format(t: VertexComponentType) -> Option<DXGI_FORMAT> {
 
 /// Elements for `decl`, plus a slot-1 dummy for every shader input the
 /// declaration lacks. Returns the elements and the dummies' semantic names.
-pub fn build_elements(decl: &VertexDeclaration, inputs: &Signature) -> (Vec<InputElement>, Vec<String>) {
+pub fn build_elements(
+    decl: &VertexDeclaration,
+    inputs: &Signature,
+) -> (Vec<InputElement>, Vec<String>) {
     let mut elements = Vec::new();
     for c in &decl.components {
-        let Some((name, index)) = semantic_name(c.semantic) else { continue };
-        let Some(format) = component_format(c.component_type) else { continue };
+        let Some((name, index)) = semantic_name(c.semantic) else {
+            continue;
+        };
+        let Some(format) = component_format(c.component_type) else {
+            continue;
+        };
         elements.push(InputElement::new(name, index, format, 0, c.offset as u32));
     }
     let mut dummies = Vec::new();
@@ -63,14 +70,26 @@ pub fn build_elements(decl: &VertexDeclaration, inputs: &Signature) -> (Vec<Inpu
         if e.system_value != 0 {
             continue; // SV_VertexID, SV_InstanceID: generated, never from a buffer
         }
-        let present = elements.iter().any(|x| x.semantic.to_str().unwrap().eq_ignore_ascii_case(&e.semantic) && x.index == e.index);
+        let present = elements.iter().any(|x| {
+            x.semantic
+                .to_str()
+                .unwrap()
+                .eq_ignore_ascii_case(&e.semantic)
+                && x.index == e.index
+        });
         if !present {
             let format = match e.component_type {
                 1 => DXGI_FORMAT_R32G32B32A32_UINT,
                 2 => DXGI_FORMAT_R32G32B32A32_SINT,
                 _ => DXGI_FORMAT_R32G32B32A32_FLOAT,
             };
-            elements.push(InputElement::new(&e.semantic, e.index, format, DUMMY_SLOT, 0));
+            elements.push(InputElement::new(
+                &e.semantic,
+                e.index,
+                format,
+                DUMMY_SLOT,
+                0,
+            ));
             dummies.push(format!("{}{}", e.semantic, e.index));
         }
     }
@@ -83,12 +102,20 @@ pub struct LayoutCache {
 
 impl LayoutCache {
     pub fn new() -> Self {
-        LayoutCache { layouts: HashMap::new() }
+        LayoutCache {
+            layouts: HashMap::new(),
+        }
     }
 
     /// Layout for a declaration against a vertex shader, cached by
     /// (declaration id, blob identity).
-    pub fn get(&mut self, dev: &Device, decl: &VertexDeclaration, inputs: &Signature, vs_dxbc: &[u8]) -> Result<(ComPtr<ID3D11InputLayout>, Vec<String>)> {
+    pub fn get(
+        &mut self,
+        dev: &Device,
+        decl: &VertexDeclaration,
+        inputs: &Signature,
+        vs_dxbc: &[u8],
+    ) -> Result<(ComPtr<ID3D11InputLayout>, Vec<String>)> {
         let key = (decl.declaration_id(), blob_key(vs_dxbc));
         let (elements, dummies) = build_elements(decl, inputs);
         if let Some(l) = self.layouts.get(&key) {

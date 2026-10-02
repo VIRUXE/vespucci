@@ -9,7 +9,24 @@ use vespucci_render::{render_drawable, ModelViewOptions, ShaderCache};
 use vespucci_world::ArchetypeDb;
 
 #[allow(clippy::too_many_arguments)]
-pub fn run(fs: &GameFs, model: &str, entry: Option<&str>, ytds: &[String], lod: &str, techniques: &[String], size: (u32, u32), yaw: f32, pitch: f32, transpose: bool, flip_sun: bool, cull: bool, wireframe: bool, mip_skip: u8, out: &Path, dump_binding: Option<&Path>) -> Result<()> {
+pub fn run(
+    fs: &GameFs,
+    model: &str,
+    entry: Option<&str>,
+    ytds: &[String],
+    lod: &str,
+    techniques: &[String],
+    size: (u32, u32),
+    yaw: f32,
+    pitch: f32,
+    transpose: bool,
+    flip_sun: bool,
+    cull: bool,
+    wireframe: bool,
+    mip_skip: u8,
+    out: &Path,
+    dump_binding: Option<&Path>,
+) -> Result<()> {
     // Locate the model: a game path, or a name resolved like the game does.
     let (loc, kind) = if let Some(l) = fs.get(model) {
         let kind = DrawableKind::from_extension(&l.ext).context("not a ydr/ydd/yft")?;
@@ -21,7 +38,10 @@ pub fn run(fs: &GameFs, model: &str, entry: Option<&str>, ytds: &[String], lod: 
             _ => (name, None),
         };
         let mut found = None;
-        for ext in ext_hint.map(|e| vec![e]).unwrap_or_else(|| vec!["ydr", "yft", "ydd"]) {
+        for ext in ext_hint
+            .map(|e| vec![e])
+            .unwrap_or_else(|| vec!["ydr", "yft", "ydd"])
+        {
             if let Some(l) = fs.by_name(ext, stem) {
                 found = Some((l, DrawableKind::from_extension(ext).unwrap()));
                 break;
@@ -34,16 +54,35 @@ pub fn run(fs: &GameFs, model: &str, entry: Option<&str>, ytds: &[String], lod: 
     let drawables = parse_drawables(&data, kind)?;
     let drawable = match entry {
         Some(e) => {
-            let h = u32::from_str_radix(e.trim_start_matches("0x"), 16).unwrap_or_else(|_| vespucci_game::joaat(&e.to_lowercase()));
-            &drawables.iter().find(|d| d.hash == h || d.name.eq_ignore_ascii_case(e)).with_context(|| format!("no entry {e}"))?.drawable
+            let h = u32::from_str_radix(e.trim_start_matches("0x"), 16)
+                .unwrap_or_else(|_| vespucci_game::joaat(&e.to_lowercase()));
+            &drawables
+                .iter()
+                .find(|d| d.hash == h || d.name.eq_ignore_ascii_case(e))
+                .with_context(|| format!("no entry {e}"))?
+                .drawable
         }
-        None => &drawables.first().context("file holds no drawables")?.drawable,
+        None => {
+            &drawables
+                .first()
+                .context("file holds no drawables")?
+                .drawable
+        }
     };
     // Vertex colour statistics per geometry (debug): tint shaders index palettes with these.
     if log::log_enabled!(log::Level::Debug) {
-        for (mi, m) in drawable.lods.first().map(|l| l.models.as_slice()).unwrap_or(&[]).iter().enumerate() {
+        for (mi, m) in drawable
+            .lods
+            .first()
+            .map(|l| l.models.as_slice())
+            .unwrap_or(&[])
+            .iter()
+            .enumerate()
+        {
             for (gi, geo) in m.geometries.iter().enumerate() {
-                let Some(vb) = &geo.vertex_buffer else { continue };
+                let Some(vb) = &geo.vertex_buffer else {
+                    continue;
+                };
                 let n = (vb.vertex_count as usize).min(4000);
                 let (mut sum, mut mn, mut mx, mut count) = ([0u64; 4], [255u8; 4], [0u8; 4], 0u64);
                 for i in 0..n {
@@ -61,7 +100,12 @@ pub fn run(fs: &GameFs, model: &str, entry: Option<&str>, ytds: &[String], lod: 
                         }
                     }
                 }
-                let shader = drawable.shader_group.as_ref().and_then(|sg| sg.shaders.get(geo.shader_id as usize)).map(|s| format!("{:#010x}", s.name_hash)).unwrap_or_default();
+                let shader = drawable
+                    .shader_group
+                    .as_ref()
+                    .and_then(|sg| sg.shaders.get(geo.shader_id as usize))
+                    .map(|s| format!("{:#010x}", s.name_hash))
+                    .unwrap_or_default();
                 if count > 0 {
                     log::debug!("model {mi} (mask {:#06x}, drawable masks {:x?}) geo {gi} shader {shader}: colour0 mean {:?} min {mn:?} max {mx:?} over {count}", m.render_mask_flags, drawable.render_masks, sum.map(|s| s / count));
                 }
@@ -69,7 +113,12 @@ pub fn run(fs: &GameFs, model: &str, entry: Option<&str>, ytds: &[String], lod: 
         }
     }
     // Vertex colour statistics of the first geometry: the unlit shader multiplies by it.
-    if let Some(geo) = drawable.lods.first().and_then(|l| l.models.first()).and_then(|m| m.geometries.first()) {
+    if let Some(geo) = drawable
+        .lods
+        .first()
+        .and_then(|l| l.models.first())
+        .and_then(|m| m.geometries.first())
+    {
         if let Some(vb) = &geo.vertex_buffer {
             let n = (vb.vertex_count as usize).min(2000);
             let mut sum = [0u64; 4];
@@ -88,11 +137,28 @@ pub fn run(fs: &GameFs, model: &str, entry: Option<&str>, ytds: &[String], lod: 
                 }
             }
             if count > 0 {
-                log::info!("vertex colour0 mean over {count} vertices: r {} g {} b {} a {}", sum[0] / count, sum[1] / count, sum[2] / count, sum[3] / count);
+                log::info!(
+                    "vertex colour0 mean over {count} vertices: r {} g {} b {} a {}",
+                    sum[0] / count,
+                    sum[1] / count,
+                    sum[2] / count,
+                    sum[3] / count
+                );
             }
         }
     }
-    log::info!("{} lods, {} shaders, {} embedded textures", drawable.lods.len(), drawable.shader_group.as_ref().map_or(0, |s| s.shaders.len()), drawable.shader_group.as_ref().map_or(0, |s| s.textures.len()));
+    log::info!(
+        "{} lods, {} shaders, {} embedded textures",
+        drawable.lods.len(),
+        drawable
+            .shader_group
+            .as_ref()
+            .map_or(0, |s| s.shaders.len()),
+        drawable
+            .shader_group
+            .as_ref()
+            .map_or(0, |s| s.textures.len())
+    );
 
     // Extra textures: explicit --ytd, then the archetype's dictionary and the same-name guess.
     let mut extra: Vec<YtdTexture> = Vec::new();
@@ -132,7 +198,11 @@ pub fn run(fs: &GameFs, model: &str, entry: Option<&str>, ytds: &[String], lod: 
         width: size.0,
         height: size.1,
         lod,
-        techniques: if techniques.is_empty() { vec!["unlit_draw".into(), "draw".into()] } else { techniques.to_vec() },
+        techniques: if techniques.is_empty() {
+            vec!["unlit_draw".into(), "draw".into()]
+        } else {
+            techniques.to_vec()
+        },
         yaw_deg: yaw,
         pitch_deg: pitch,
         transpose_matrices: transpose,
@@ -144,13 +214,22 @@ pub fn run(fs: &GameFs, model: &str, entry: Option<&str>, ytds: &[String], lod: 
     };
     let dev = crate::timed("create device", Device::create)?;
     let mut shaders = ShaderCache::new(fs);
-    let (pixels, report) = crate::timed("render", || render_drawable(&dev, fs, &mut shaders, drawable, &extra, &opts))?;
+    let (pixels, report) = crate::timed("render", || {
+        render_drawable(&dev, fs, &mut shaders, drawable, &extra, &opts)
+    })?;
     crate::write_png(out, size.0, size.1, &pixels)?;
-    let fg: Vec<&[u8]> = pixels.chunks(4).filter(|p| p[0] != 64 || p[1] != 64 || p[2] != 71).collect();
+    let fg: Vec<&[u8]> = pixels
+        .chunks(4)
+        .filter(|p| p[0] != 64 || p[1] != 64 || p[2] != 71)
+        .collect();
     let non_bg = fg.len();
     if non_bg > 0 {
-        let mean: Vec<u64> = (0..3).map(|k| fg.iter().map(|p| p[k] as u64).sum::<u64>() / non_bg as u64).collect();
-        let max: Vec<u8> = (0..3).map(|k| fg.iter().map(|p| p[k]).max().unwrap()).collect();
+        let mean: Vec<u64> = (0..3)
+            .map(|k| fg.iter().map(|p| p[k] as u64).sum::<u64>() / non_bg as u64)
+            .collect();
+        let max: Vec<u8> = (0..3)
+            .map(|k| fg.iter().map(|p| p[k]).max().unwrap())
+            .collect();
         println!("  foreground mean rgb {:?}, max rgb {:?}", mean, max);
     }
     println!(
@@ -166,8 +245,23 @@ pub fn run(fs: &GameFs, model: &str, entry: Option<&str>, ytds: &[String], lod: 
         println!("  vertex layout: {l}");
     }
     for m in &report.materials {
-        let missing: Vec<_> = m["textures"].as_array().map(|a| a.iter().filter(|t| t["found"] == false).map(|t| format!("{}={}", t["binding"], t["texture"])).collect()).unwrap_or_default();
-        println!("  {} / {}: params applied {}, unmatched {}, textures missing {:?}", m["shader"], m["technique"], m["params_applied"], m["params_unmatched"].as_array().map_or(0, |a| a.len()), missing);
+        let missing: Vec<_> = m["textures"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter(|t| t["found"] == false)
+                    .map(|t| format!("{}={}", t["binding"], t["texture"]))
+                    .collect()
+            })
+            .unwrap_or_default();
+        println!(
+            "  {} / {}: params applied {}, unmatched {}, textures missing {:?}",
+            m["shader"],
+            m["technique"],
+            m["params_applied"],
+            m["params_unmatched"].as_array().map_or(0, |a| a.len()),
+            missing
+        );
     }
     if let Some(p) = dump_binding {
         std::fs::write(p, serde_json::to_string_pretty(&report.materials)?)?;

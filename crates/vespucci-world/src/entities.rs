@@ -76,7 +76,11 @@ impl Entity {
     }
 
     pub fn to_world(&self, local: Vec3) -> Vec3 {
-        let scaled = Vec3::new(local.x * self.scale_xy, local.y * self.scale_xy, local.z * self.scale_z);
+        let scaled = Vec3::new(
+            local.x * self.scale_xy,
+            local.y * self.scale_xy,
+            local.z * self.scale_z,
+        );
         rage_formats::ymap::rotate(scaled, self.orientation()) + self.position
     }
 }
@@ -104,25 +108,40 @@ pub struct YmapEntities {
 
 pub fn parse_entities(data: &[u8]) -> Result<YmapEntities> {
     let (system, graphics) = prepare_rsc7(data)?;
-    let reader = ResReader { system: &system, graphics: &graphics };
+    let reader = ResReader {
+        system: &system,
+        graphics: &graphics,
+    };
     let blocks = read_meta_blocks(&reader)?;
-    let map = blocks.iter().find(|b| b.name_hash == HASH_CMAPDATA).context("CMapData block not found")?;
+    let map = blocks
+        .iter()
+        .find(|b| b.name_hash == HASH_CMAPDATA)
+        .context("CMapData block not found")?;
     let d = &map.data;
     anyhow::ensure!(d.len() >= 512, "CMapData block too small");
 
     let mut entities = Vec::new();
     let count = rage_formats::resource::u16_le(d, 96 + 8) as usize;
     if let Some((bi, off)) = decode_meta_pointer(u64_le(d, 96)) {
-        if let Some(arr) = blocks.get(bi).and_then(|b| b.data.get(off..off + count * 8)) {
+        if let Some(arr) = blocks
+            .get(bi)
+            .and_then(|b| b.data.get(off..off + count * 8))
+        {
             for i in 0..count {
-                let Some((ebi, eoff)) = decode_meta_pointer(u64_le(arr, i * 8)) else { continue };
-                let Some(block) = blocks.get(ebi) else { continue };
+                let Some((ebi, eoff)) = decode_meta_pointer(u64_le(arr, i * 8)) else {
+                    continue;
+                };
+                let Some(block) = blocks.get(ebi) else {
+                    continue;
+                };
                 let is_mlo = match block.name_hash {
                     HASH_CENTITYDEF => false,
                     HASH_CMLOINSTANCEDEF => true,
                     _ => continue,
                 };
-                let Some(e) = block.data.get(eoff..eoff + 128) else { continue };
+                let Some(e) = block.data.get(eoff..eoff + 128) else {
+                    continue;
+                };
                 entities.push(Entity {
                     archetype_hash: u32_le(e, 8),
                     flags: u32_le(e, 12),
@@ -159,5 +178,10 @@ pub fn parse_entities(data: &[u8]) -> Result<YmapEntities> {
         })
         .collect();
 
-    Ok(YmapEntities { flags: u32_le(d, 16), content_flags: u32_le(d, 20), entities, car_generators })
+    Ok(YmapEntities {
+        flags: u32_le(d, 16),
+        content_flags: u32_le(d, 20),
+        entities,
+        car_generators,
+    })
 }

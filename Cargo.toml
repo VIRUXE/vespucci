@@ -3,9 +3,16 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.4.0"
 edition = "2021"
+rust-version = "1.75"
 license = "MIT OR Apache-2.0"
+authors = ["Flávio Pereira <flavioaspereira@gmail.com>"]
+repository = "https://github.com/VIRUXE/vespucci"
+homepage = "https://github.com/VIRUXE/vespucci"
+readme = "README.md"
+keywords = ["gtav", "rage", "map-editor", "d3d11", "headless"]
+categories = ["games", "rendering", "command-line-utilities"]
 
 [profile.release]
 opt-level = 3

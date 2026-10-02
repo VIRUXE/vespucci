@@ -18,7 +18,11 @@ struct Check {
 }
 
 fn check(name: &'static str, ok: bool, detail: impl Into<String>) -> Check {
-    Check { name, ok, detail: detail.into() }
+    Check {
+        name,
+        ok,
+        detail: detail.into(),
+    }
 }
 
 pub fn run(game: Option<&Path>, gpu: bool, out: Option<&Path>, size: u32) -> Result<()> {
@@ -30,10 +34,26 @@ pub fn run(game: Option<&Path>, gpu: bool, out: Option<&Path>, size: u32) -> Res
                 let p = dir.join(f);
                 checks.push(check("game file", p.exists(), p.display().to_string()));
             }
-            let version = vespucci_game::keys::resolve_exe(dir).ok().and_then(|exe| vespucci_game::keys::exe_version(&exe));
-            checks.push(check("game build", version.is_some(), version.clone().unwrap_or_else(|| "version resource not found".into())));
+            let version = vespucci_game::keys::resolve_exe(dir)
+                .ok()
+                .and_then(|exe| vespucci_game::keys::exe_version(&exe));
+            checks.push(check(
+                "game build",
+                version.is_some(),
+                version
+                    .clone()
+                    .unwrap_or_else(|| "version resource not found".into()),
+            ));
             match vespucci_game::keys::load(dir) {
-                Ok((_, cached)) => checks.push(check("RPF keys", true, if cached { "from cache" } else { "recovered from GTA5.exe" })),
+                Ok((_, cached)) => checks.push(check(
+                    "RPF keys",
+                    true,
+                    if cached {
+                        "from cache"
+                    } else {
+                        "recovered from GTA5.exe"
+                    },
+                )),
                 Err(e) => checks.push(check("RPF keys", false, e.to_string())),
             }
             let t = std::time::Instant::now();
@@ -41,7 +61,12 @@ pub fn run(game: Option<&Path>, gpu: bool, out: Option<&Path>, size: u32) -> Res
                 Ok(fs) => checks.push(check(
                     "archives",
                     fs.archives.len() >= 100 && fs.files.len() >= 100_000,
-                    format!("{} archives, {} files, scanned in {:.1} s", fs.archives.len(), fs.files.len(), t.elapsed().as_secs_f64()),
+                    format!(
+                        "{} archives, {} files, scanned in {:.1} s",
+                        fs.archives.len(),
+                        fs.files.len(),
+                        t.elapsed().as_secs_f64()
+                    ),
                 )),
                 Err(e) => checks.push(check("archives", false, e.to_string())),
             }
@@ -54,13 +79,21 @@ pub fn run(game: Option<&Path>, gpu: bool, out: Option<&Path>, size: u32) -> Res
     {
         let icd = "/usr/share/vulkan/icd.d/lvp_icd.json";
         checks.push(check("lavapipe ICD", Path::new(icd).exists(), icd));
-        for lib in ["/opt/dxvk-native/lib/x86_64-linux-gnu/libdxvk_d3d11.so", "/opt/dxvk-native/lib/x86_64-linux-gnu/libdxvk_dxgi.so"] {
+        for lib in [
+            "/opt/dxvk-native/lib/x86_64-linux-gnu/libdxvk_d3d11.so",
+            "/opt/dxvk-native/lib/x86_64-linux-gnu/libdxvk_dxgi.so",
+        ] {
             checks.push(check("DXVK-native lib", Path::new(lib).exists(), lib));
         }
     }
 
     for c in &checks {
-        println!("{} {:<16} {}", if c.ok { "PASS" } else { "FAIL" }, c.name, c.detail);
+        println!(
+            "{} {:<16} {}",
+            if c.ok { "PASS" } else { "FAIL" },
+            c.name,
+            c.detail
+        );
     }
     let failed = checks.iter().filter(|c| !c.ok).count();
 
@@ -99,7 +132,9 @@ fn gpu_test(out: Option<&Path>, size: u32) -> Result<()> {
         0.7, -0.7, 0.0, 1.0, 0.0, 0.0, 1.0, //
         -0.7, -0.7, 0.0, 1.0, 0.0, 0.0, 1.0,
     ];
-    let vbytes: &[u8] = unsafe { core::slice::from_raw_parts(verts.as_ptr() as *const u8, core::mem::size_of_val(&verts)) };
+    let vbytes: &[u8] = unsafe {
+        core::slice::from_raw_parts(verts.as_ptr() as *const u8, core::mem::size_of_val(&verts))
+    };
     let vb = dev.create_buffer(vbytes, D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_IMMUTABLE)?;
 
     let draw = || -> Result<Vec<u8>> {
@@ -111,8 +146,20 @@ fn gpu_test(out: Option<&Path>, size: u32) -> Result<()> {
         let offsets = [0u32];
         unsafe {
             vespucci_d3d11::com_call!(ctx, IASetInputLayout, layout.as_ptr());
-            vespucci_d3d11::com_call!(ctx, IASetVertexBuffers, 0, 1, bufs.as_ptr(), strides.as_ptr(), offsets.as_ptr());
-            vespucci_d3d11::com_call!(ctx, IASetPrimitiveTopology, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            vespucci_d3d11::com_call!(
+                ctx,
+                IASetVertexBuffers,
+                0,
+                1,
+                bufs.as_ptr(),
+                strides.as_ptr(),
+                offsets.as_ptr()
+            );
+            vespucci_d3d11::com_call!(
+                ctx,
+                IASetPrimitiveTopology,
+                D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST
+            );
             vespucci_d3d11::com_call!(ctx, VSSetShader, vs.as_ptr(), core::ptr::null(), 0);
             vespucci_d3d11::com_call!(ctx, PSSetShader, ps.as_ptr(), core::ptr::null(), 0);
             vespucci_d3d11::com_call!(ctx, Draw, 3, 0);
@@ -133,8 +180,14 @@ fn gpu_test(out: Option<&Path>, size: u32) -> Result<()> {
     let corner = px(4, 4);
     let centre = px(size / 2, size / 2);
     let expect_clear = [51u8, 102, 153, 255];
-    println!("  corner pixel {:?} (expect ~{:?}), centre pixel {:?} (expect red)", corner, expect_clear, centre);
-    let clear_ok = corner.iter().zip(expect_clear).all(|(a, b)| (*a as i32 - b as i32).abs() <= 1);
+    println!(
+        "  corner pixel {:?} (expect ~{:?}), centre pixel {:?} (expect red)",
+        corner, expect_clear, centre
+    );
+    let clear_ok = corner
+        .iter()
+        .zip(expect_clear)
+        .all(|(a, b)| (*a as i32 - b as i32).abs() <= 1);
     let red_ok = centre == [255, 0, 0, 255];
 
     if let Some(p) = out {

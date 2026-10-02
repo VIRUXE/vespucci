@@ -11,13 +11,38 @@ use vespucci_world::{collect, ArchetypeDb, MapSet, Mode, StreamOptions, TxdParen
 
 /// "HH:MM" or "HH" to the hour the game's time flags use.
 pub fn parse_hour(time: &str) -> Result<u8> {
-    let h: u8 = time.split(':').next().unwrap_or("").trim().parse().map_err(|_| anyhow::anyhow!("--time wants HH:MM, got {time:?}"))?;
+    let h: u8 = time
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .parse()
+        .map_err(|_| anyhow::anyhow!("--time wants HH:MM, got {time:?}"))?;
     anyhow::ensure!(h < 24, "--time hour out of range: {time}");
     Ok(h)
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn run(fs: &GameFs, mode: Mode, pos: (f32, f32, f32), look: (f32, f32, f32), fov: f32, size: (u32, u32), radius: f32, lod_scale: f32, lighting: &str, max_draws: usize, budget_mb: usize, mip_skip: &str, flip_sun: bool, exposure: f32, time: &str, script_maps: bool, out: &Path, json: bool) -> Result<()> {
+pub fn run(
+    fs: &GameFs,
+    mode: Mode,
+    pos: (f32, f32, f32),
+    look: (f32, f32, f32),
+    fov: f32,
+    size: (u32, u32),
+    radius: f32,
+    lod_scale: f32,
+    lighting: &str,
+    max_draws: usize,
+    budget_mb: usize,
+    mip_skip: &str,
+    flip_sun: bool,
+    exposure: f32,
+    time: &str,
+    script_maps: bool,
+    out: &Path,
+    json: bool,
+) -> Result<()> {
     let t0 = std::time::Instant::now();
     let set = MapSet::build(fs, mode)?;
     let db = ArchetypeDb::build(fs)?;
@@ -25,21 +50,70 @@ pub fn run(fs: &GameFs, mode: Mode, pos: (f32, f32, f32), look: (f32, f32, f32),
     let txd_parents = TxdParents::build(fs)?;
     let camera_pos = vespucci_world::Vec3::new(pos.0, pos.1, pos.2);
     let hour = parse_hour(time)?;
-    let (instances, stats) = crate::timed("stream", || collect(fs, &tree, &db, camera_pos, StreamOptions { radius, lod_scale, include_mlo_instances: false, hour: Some(hour), include_script_maps: script_maps }))?;
+    let (instances, stats) = crate::timed("stream", || {
+        collect(
+            fs,
+            &tree,
+            &db,
+            camera_pos,
+            StreamOptions {
+                radius,
+                lod_scale,
+                include_mlo_instances: false,
+                hour: Some(hour),
+                include_script_maps: script_maps,
+            },
+        )
+    })?;
     log::info!("{stats:?}");
 
     let lighting = match lighting {
         "none" | "unlit" => Lighting::Unlit,
         _ => Lighting::Basic,
     };
-    let skips: Vec<u8> = mip_skip.split(',').filter_map(|s| s.trim().parse().ok()).collect();
-    let mip = [skips.first().copied().unwrap_or(0), skips.get(1).copied().unwrap_or(1), skips.get(2).copied().unwrap_or(2)];
-    let cam = Camera { position: Vec3::new(pos.0, pos.1, pos.2), target: Vec3::new(look.0, look.1, look.2), fov_deg: fov, aspect: size.0 as f32 / size.1 as f32, near: 0.1, far: 4000.0 };
-    let opts = WorldViewOptions { width: size.0, height: size.1, lighting, mip_skip: mip, max_draws, budget_bytes: budget_mb * 1024 * 1024, sun_sign: if flip_sun { -1.0 } else { 1.0 }, background: [0.28, 0.48, 0.9, 1.0], exposure };
+    let skips: Vec<u8> = mip_skip
+        .split(',')
+        .filter_map(|s| s.trim().parse().ok())
+        .collect();
+    let mip = [
+        skips.first().copied().unwrap_or(0),
+        skips.get(1).copied().unwrap_or(1),
+        skips.get(2).copied().unwrap_or(2),
+    ];
+    let cam = Camera {
+        position: Vec3::new(pos.0, pos.1, pos.2),
+        target: Vec3::new(look.0, look.1, look.2),
+        fov_deg: fov,
+        aspect: size.0 as f32 / size.1 as f32,
+        near: 0.1,
+        far: 4000.0,
+    };
+    let opts = WorldViewOptions {
+        width: size.0,
+        height: size.1,
+        lighting,
+        mip_skip: mip,
+        max_draws,
+        budget_bytes: budget_mb * 1024 * 1024,
+        sun_sign: if flip_sun { -1.0 } else { 1.0 },
+        background: [0.28, 0.48, 0.9, 1.0],
+        exposure,
+    };
 
     let dev = crate::timed("create device", Device::create)?;
     let mut shaders = ShaderCache::new(fs);
-    let (pixels, report) = crate::timed("render", || render_world(&dev, fs, &mut shaders, &db, &txd_parents, &instances, &cam, &opts))?;
+    let (pixels, report) = crate::timed("render", || {
+        render_world(
+            &dev,
+            fs,
+            &mut shaders,
+            &db,
+            &txd_parents,
+            &instances,
+            &cam,
+            &opts,
+        )
+    })?;
     crate::write_png(out, size.0, size.1, &pixels)?;
     let rss = crate::files::peak_rss().unwrap_or(0);
     if json {

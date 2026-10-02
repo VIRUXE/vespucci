@@ -25,12 +25,22 @@ pub fn dxgi_format(f: TextureFormat) -> Option<DXGI_FORMAT> {
 }
 
 fn is_block(f: TextureFormat) -> bool {
-    matches!(f, TextureFormat::DXT1 | TextureFormat::DXT3 | TextureFormat::DXT5 | TextureFormat::ATI1 | TextureFormat::ATI2 | TextureFormat::BC7)
+    matches!(
+        f,
+        TextureFormat::DXT1
+            | TextureFormat::DXT3
+            | TextureFormat::DXT5
+            | TextureFormat::ATI1
+            | TextureFormat::ATI2
+            | TextureFormat::BC7
+    )
 }
 
 /// Uploads a texture with its whole mip chain, dropping the top `skip` levels.
 pub fn upload(dev: &Device, t: &YtdTexture, skip: u8) -> Result<ComPtr<ID3D11ShaderResourceView>> {
-    let Some(format) = dxgi_format(t.format) else { bail!("{}: unsupported format {:?}", t.name, t.format) };
+    let Some(format) = dxgi_format(t.format) else {
+        bail!("{}: unsupported format {:?}", t.name, t.format)
+    };
     let levels = t.levels.max(1);
     let data = to_dds_layout(t.format, t.width, t.height, t.stride, levels, &t.pixel_data);
     let skip = skip.min(levels - 1);
@@ -41,14 +51,23 @@ pub fn upload(dev: &Device, t: &YtdTexture, skip: u8) -> Result<ComPtr<ID3D11Sha
         let size = level_size(t.format, w, h);
         let end = (at + size).min(data.len());
         if level >= skip {
-            let pitch = if is_block(t.format) { (w as u32).div_ceil(4).max(1) * (size as u32 / ((h as u32).div_ceil(4).max(1) * (w as u32).div_ceil(4).max(1))) } else { size as u32 / h.max(1) as u32 };
+            let pitch = if is_block(t.format) {
+                (w as u32).div_ceil(4).max(1)
+                    * (size as u32
+                        / ((h as u32).div_ceil(4).max(1) * (w as u32).div_ceil(4).max(1)))
+            } else {
+                size as u32 / h.max(1) as u32
+            };
             mips.push((&data[at..end], pitch));
         }
         at = end;
         w = (w / 2).max(1);
         h = (h / 2).max(1);
     }
-    let (tw, th) = ((t.width >> skip).max(1) as u32, (t.height >> skip).max(1) as u32);
+    let (tw, th) = (
+        (t.width >> skip).max(1) as u32,
+        (t.height >> skip).max(1) as u32,
+    );
     let tex = dev.create_texture2d_mips(tw, th, format, &mips)?;
     dev.create_srv(&tex)
 }
@@ -83,14 +102,25 @@ impl TextureCache {
                 (c.len() >= 3).then(|| [c[0], c[1], c[2], 255])
             })
             .unwrap_or([77, 102, 140, 255]);
-        Ok(TextureCache { srvs: HashMap::new(), missing: solid(dev, [255, 0, 255, 255])?, engine: solid(dev, engine_rgba)?, unshadowed: dev.create_srv(&depth_one)?, uploaded_bytes: 0 })
+        Ok(TextureCache {
+            srvs: HashMap::new(),
+            missing: solid(dev, [255, 0, 255, 255])?,
+            engine: solid(dev, engine_rgba)?,
+            unshadowed: dev.create_srv(&depth_one)?,
+            uploaded_bytes: 0,
+        })
     }
 
     pub fn get(&self, name_hash: u32) -> Option<&ComPtr<ID3D11ShaderResourceView>> {
         self.srvs.get(&name_hash)
     }
 
-    pub fn insert(&mut self, dev: &Device, t: &YtdTexture, skip: u8) -> Result<&ComPtr<ID3D11ShaderResourceView>> {
+    pub fn insert(
+        &mut self,
+        dev: &Device,
+        t: &YtdTexture,
+        skip: u8,
+    ) -> Result<&ComPtr<ID3D11ShaderResourceView>> {
         if !self.srvs.contains_key(&t.name_hash) {
             let srv = upload(dev, t, skip)?;
             self.uploaded_bytes += t.pixel_data.len();

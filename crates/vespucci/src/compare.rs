@@ -4,16 +4,24 @@ use anyhow::{bail, Context, Result};
 use std::path::Path;
 
 pub fn load_rgba(path: &Path) -> Result<(u32, u32, Vec<u8>)> {
-    let decoder = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(path).with_context(|| path.display().to_string())?));
+    let decoder = png::Decoder::new(std::io::BufReader::new(
+        std::fs::File::open(path).with_context(|| path.display().to_string())?,
+    ));
     let mut reader = decoder.read_info()?;
     let mut buf = vec![0; reader.output_buffer_size()];
     let info = reader.next_frame(&mut buf)?;
     let bytes = &buf[..info.buffer_size()];
     let rgba = match info.color_type {
         png::ColorType::Rgba => bytes.to_vec(),
-        png::ColorType::Rgb => bytes.chunks(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
+        png::ColorType::Rgb => bytes
+            .chunks(3)
+            .flat_map(|p| [p[0], p[1], p[2], 255])
+            .collect(),
         png::ColorType::Grayscale => bytes.iter().flat_map(|&g| [g, g, g, 255]).collect(),
-        png::ColorType::GrayscaleAlpha => bytes.chunks(2).flat_map(|p| [p[0], p[0], p[0], p[1]]).collect(),
+        png::ColorType::GrayscaleAlpha => bytes
+            .chunks(2)
+            .flat_map(|p| [p[0], p[0], p[0], p[1]])
+            .collect(),
         other => bail!("unsupported PNG colour type {other:?}"),
     };
     Ok((info.width, info.height, rgba))
@@ -36,7 +44,11 @@ pub fn psnr(a: &[u8], b: &[u8]) -> (f64, f64) {
         }
     }
     let mse = se / (n as f64 * 3.0);
-    let psnr = if mse == 0.0 { f64::INFINITY } else { 10.0 * (255.0f64 * 255.0 / mse).log10() };
+    let psnr = if mse == 0.0 {
+        f64::INFINITY
+    } else {
+        10.0 * (255.0f64 * 255.0 / mse).log10()
+    };
     (psnr, differing as f64 / n as f64)
 }
 

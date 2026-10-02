@@ -50,10 +50,25 @@ struct Geo {
 }
 
 /// Renders `drawable` and returns RGBA8 pixels plus what was bound.
-pub fn render_drawable(dev: &Device, fs: &GameFs, shaders: &mut ShaderCache, drawable: &Drawable, extra_textures: &[YtdTexture], opts: &ModelViewOptions) -> Result<(Vec<u8>, ModelViewReport)> {
+pub fn render_drawable(
+    dev: &Device,
+    fs: &GameFs,
+    shaders: &mut ShaderCache,
+    drawable: &Drawable,
+    extra_textures: &[YtdTexture],
+    opts: &ModelViewOptions,
+) -> Result<(Vec<u8>, ModelViewReport)> {
     let rt = dev.create_render_target(opts.width, opts.height, DXGI_FORMAT_R8G8B8A8_UNORM)?;
     let depth = dev.create_depth_target(opts.width, opts.height)?;
-    let rasterizer = dev.create_rasterizer(if opts.cull { D3D11_CULL_BACK } else { D3D11_CULL_NONE }, false, opts.wireframe)?;
+    let rasterizer = dev.create_rasterizer(
+        if opts.cull {
+            D3D11_CULL_BACK
+        } else {
+            D3D11_CULL_NONE
+        },
+        false,
+        opts.wireframe,
+    )?;
     let sampler = dev.create_sampler(D3D11_FILTER_ANISOTROPIC, D3D11_TEXTURE_ADDRESS_WRAP, 16)?;
     let comparison = dev.create_comparison_sampler()?;
     let mut textures = TextureCache::new(dev)?;
@@ -78,12 +93,29 @@ pub fn render_drawable(dev: &Device, fs: &GameFs, shaders: &mut ShaderCache, dra
     if let Some(sg) = &drawable.shader_group {
         for fx in &sg.shaders {
             let built = (|| -> Result<Material> {
-                let program = shaders.get(fs, fx.name_hash).with_context(|| format!("shader {:#010x}", fx.name_hash))?;
+                let program = shaders
+                    .get(fs, fx.name_hash)
+                    .with_context(|| format!("shader {:#010x}", fx.name_hash))?;
                 let mut program = program.borrow_mut();
-                let technique = program.pick_technique(&techniques).with_context(|| format!("{}: none of {:?}", program.name, techniques))?.to_string();
+                let technique = program
+                    .pick_technique(&techniques)
+                    .with_context(|| format!("{}: none of {:?}", program.name, techniques))?
+                    .to_string();
                 let (vs, ps) = program.technique_stages(dev, &technique)?;
                 let name = program.name.clone();
-                Material::build(dev, &program.fxc, &name, &technique, vs, ps, fx, &mut globals, &mut textures, find_texture, opts.mip_skip)
+                Material::build(
+                    dev,
+                    &program.fxc,
+                    &name,
+                    &technique,
+                    vs,
+                    ps,
+                    fx,
+                    &mut globals,
+                    &mut textures,
+                    find_texture,
+                    opts.mip_skip,
+                )
             })();
             match built {
                 Ok(m) => materials.push(Some(m)),
@@ -100,17 +132,39 @@ pub fn render_drawable(dev: &Device, fs: &GameFs, shaders: &mut ShaderCache, dra
     let mut skipped = 0;
     let mut dummy_inputs: Vec<String> = Vec::new();
     let mut vertex_layouts: Vec<String> = Vec::new();
-    let lod = drawable.lods.iter().find(|l| l.level == opts.lod).or_else(|| drawable.lods.first()).context("drawable has no LODs")?;
+    let lod = drawable
+        .lods
+        .iter()
+        .find(|l| l.level == opts.lod)
+        .or_else(|| drawable.lods.first())
+        .context("drawable has no LODs")?;
     for model in &lod.models {
         if model.render_mask_flags & 1 == 0 && std::env::var("VESPUCCI_ALL_MODELS").is_err() {
             continue; // shadow-only model (render mask bit 0 clear)
         }
         for geo in &model.geometries {
-            let Some(vb) = &geo.vertex_buffer else { skipped += 1; continue };
-            let Some(decl) = &vb.declaration else { skipped += 1; continue };
-            let Some(ib) = &geo.index_buffer else { skipped += 1; continue };
-            let Some(Some(material)) = materials.get(geo.shader_id as usize) else { skipped += 1; continue };
-            let inputs = material.vs.stage.inputs.as_ref().context("vs without input signature")?;
+            let Some(vb) = &geo.vertex_buffer else {
+                skipped += 1;
+                continue;
+            };
+            let Some(decl) = &vb.declaration else {
+                skipped += 1;
+                continue;
+            };
+            let Some(ib) = &geo.index_buffer else {
+                skipped += 1;
+                continue;
+            };
+            let Some(Some(material)) = materials.get(geo.shader_id as usize) else {
+                skipped += 1;
+                continue;
+            };
+            let inputs = material
+                .vs
+                .stage
+                .inputs
+                .as_ref()
+                .context("vs without input signature")?;
             let (layout, dummies) = match layouts.get(dev, decl, inputs, &material.vs.stage.dxbc) {
                 Ok(l) => l,
                 Err(e) => {
@@ -124,32 +178,86 @@ pub fn render_drawable(dev: &Device, fs: &GameFs, shaders: &mut ShaderCache, dra
                     dummy_inputs.push(d);
                 }
             }
-            let desc = decl.components.iter().map(|c| format!("{}:{}@{}", c.semantic.as_str(), c.component_type.as_str(), c.offset)).collect::<Vec<_>>().join(" ");
+            let desc = decl
+                .components
+                .iter()
+                .map(|c| {
+                    format!(
+                        "{}:{}@{}",
+                        c.semantic.as_str(),
+                        c.component_type.as_str(),
+                        c.offset
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
             if !vertex_layouts.contains(&desc) {
                 vertex_layouts.push(desc);
             }
-            let vbuf = dev.create_buffer(&vb.data, D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_IMMUTABLE)?;
+            let vbuf =
+                dev.create_buffer(&vb.data, D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_IMMUTABLE)?;
             let (ibytes, index_format) = if ib.indices.iter().all(|&i| i < 65536) {
-                (ib.indices.iter().flat_map(|&i| (i as u16).to_le_bytes()).collect::<Vec<u8>>(), DXGI_FORMAT_R16_UINT)
+                (
+                    ib.indices
+                        .iter()
+                        .flat_map(|&i| (i as u16).to_le_bytes())
+                        .collect::<Vec<u8>>(),
+                    DXGI_FORMAT_R16_UINT,
+                )
             } else {
-                (ib.indices.iter().flat_map(|&i| i.to_le_bytes()).collect::<Vec<u8>>(), DXGI_FORMAT_R32_UINT)
+                (
+                    ib.indices
+                        .iter()
+                        .flat_map(|&i| i.to_le_bytes())
+                        .collect::<Vec<u8>>(),
+                    DXGI_FORMAT_R32_UINT,
+                )
             };
-            let ibuf = dev.create_buffer(&ibytes, D3D11_BIND_INDEX_BUFFER, D3D11_USAGE_IMMUTABLE)?;
-            geos.push(Geo { material: geo.shader_id as usize, vb: vbuf, stride: vb.vertex_stride as u32, ib: ibuf, index_format, index_count: ib.indices.len() as u32, layout });
+            let ibuf =
+                dev.create_buffer(&ibytes, D3D11_BIND_INDEX_BUFFER, D3D11_USAGE_IMMUTABLE)?;
+            geos.push(Geo {
+                material: geo.shader_id as usize,
+                vb: vbuf,
+                stride: vb.vertex_stride as u32,
+                ib: ibuf,
+                index_format,
+                index_count: ib.indices.len() as u32,
+                layout,
+            });
         }
     }
 
     // Camera framing the drawable, and the engine globals every shader shares.
     let b = &drawable.bounds;
     let centre = Vec3::new(b.center.x, b.center.y, b.center.z);
-    let radius = if b.sphere_radius > 0.0 { b.sphere_radius } else { 1.0 };
-    let cam = Camera::orbit(centre, radius, opts.width as f32 / opts.height as f32, opts.yaw_deg, opts.pitch_deg);
-    crate::globals_preview::apply(&mut globals, &cam, opts.width, opts.height, opts.sun_sign, opts.transpose_matrices);
+    let radius = if b.sphere_radius > 0.0 {
+        b.sphere_radius
+    } else {
+        1.0
+    };
+    let cam = Camera::orbit(
+        centre,
+        radius,
+        opts.width as f32 / opts.height as f32,
+        opts.yaw_deg,
+        opts.pitch_deg,
+    );
+    crate::globals_preview::apply(
+        &mut globals,
+        &cam,
+        opts.width,
+        opts.height,
+        opts.sun_sign,
+        opts.transpose_matrices,
+    );
     // Debug: VESPUCCI_SET_VAR=<cbuffer>:<var>=a,b,c,d sets a material variable in every material.
     if let Ok(spec) = std::env::var("VESPUCCI_SET_VAR") {
         if let Some((target, values)) = spec.split_once('=') {
             if let Some((cb, var)) = target.split_once(':') {
-                let v: Vec<f32> = values.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                let v: Vec<f32> = values
+                    .split(',')
+                    .filter_map(|x| x.trim().parse().ok())
+                    .collect();
                 let mut hits = 0;
                 for m in materials.iter_mut().flatten() {
                     for c in &mut m.cbuffers {
@@ -160,7 +268,9 @@ pub fn render_drawable(dev: &Device, fs: &GameFs, shaders: &mut ShaderCache, dra
                         }
                     }
                 }
-                log::info!("VESPUCCI_SET_VAR {cb}:{var} = {v:?} applied to {hits} material buffers");
+                log::info!(
+                    "VESPUCCI_SET_VAR {cb}:{var} = {v:?} applied to {hits} material buffers"
+                );
             }
         }
     }
@@ -201,7 +311,11 @@ pub fn render_drawable(dev: &Device, fs: &GameFs, shaders: &mut ShaderCache, dra
     }
     globals.upload_all(dev)?;
 
-    let dummy = dev.create_buffer(&[0u8; DUMMY_BYTES], D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_IMMUTABLE)?;
+    let dummy = dev.create_buffer(
+        &[0u8; DUMMY_BYTES],
+        D3D11_BIND_VERTEX_BUFFER,
+        D3D11_USAGE_IMMUTABLE,
+    )?;
     dev.clear(&rt, opts.background);
     dev.clear_depth(&depth);
     dev.bind_targets(&rt, Some(&depth));

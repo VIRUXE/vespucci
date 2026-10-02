@@ -3,17 +3,21 @@ use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+mod compare;
 mod doctor;
 mod files;
 mod render;
 mod render_model;
 mod shader;
 mod texture;
-mod compare;
 mod world;
 
 #[derive(Parser)]
-#[command(name = "vespucci", version, about = "GTA V map editor: desktop on Windows, headless on Linux")]
+#[command(
+    name = "vespucci",
+    version,
+    about = "GTA V map editor: desktop on Windows, headless on Linux"
+)]
 struct Cli {
     /// Game install directory (default: $GTAV_PATH)
     #[arg(long, env = "GTAV_PATH", global = true)]
@@ -218,8 +222,15 @@ fn main() -> Result<()> {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
     let cli = Cli::parse();
-    env_logger::Builder::new().parse_filters(&cli.log).format_timestamp(None).init();
-    let game = || cli.game.as_deref().context("game directory needed: --game DIR or $GTAV_PATH");
+    env_logger::Builder::new()
+        .parse_filters(&cli.log)
+        .format_timestamp(None)
+        .init();
+    let game = || {
+        cli.game
+            .as_deref()
+            .context("game directory needed: --game DIR or $GTAV_PATH")
+    };
     let mode = match cli.mapset.as_str() {
         "sp" => vespucci_world::Mode::SinglePlayer,
         "mp" => vespucci_world::Mode::Multiplayer,
@@ -227,28 +238,137 @@ fn main() -> Result<()> {
         other => anyhow::bail!("--mapset must be sp, mp or all, not {other}"),
     };
     match cli.cmd {
-        Cmd::Doctor { gpu, out, size } => doctor::run(cli.game.as_deref(), gpu, out.as_deref(), size),
-        Cmd::Ls { path, recursive, long } => files::ls(&files::open(game()?)?, path.as_deref().unwrap_or(""), recursive, long),
+        Cmd::Doctor { gpu, out, size } => {
+            doctor::run(cli.game.as_deref(), gpu, out.as_deref(), size)
+        }
+        Cmd::Ls {
+            path,
+            recursive,
+            long,
+        } => files::ls(
+            &files::open(game()?)?,
+            path.as_deref().unwrap_or(""),
+            recursive,
+            long,
+        ),
         Cmd::Cat { path, out } => files::cat(&files::open(game()?)?, &path, out.as_deref()),
-        Cmd::Find { glob, ext, name, hash, long } => {
-            files::find(&files::open(game()?)?, ext.as_deref(), name.as_deref(), hash.as_deref(), glob.as_deref(), long)
-        }
+        Cmd::Find {
+            glob,
+            ext,
+            name,
+            hash,
+            long,
+        } => files::find(
+            &files::open(game()?)?,
+            ext.as_deref(),
+            name.as_deref(),
+            hash.as_deref(),
+            glob.as_deref(),
+            long,
+        ),
         Cmd::Index => world::index(&files::open(game()?)?, mode),
-        Cmd::Probe { pos, radius, json } => world::probe(&files::open(game()?)?, mode, vespucci_world::Vec3::new(pos.0, pos.1, pos.2), radius, json),
-        Cmd::Render { pos, look, fov, size, radius, lod_scale, lighting, max_draws, budget_mb, mip_skip, flip_sun, exposure, time, script_maps, out, json } => {
-            render::run(&files::open(game()?)?, mode, pos, look, fov, size, radius, lod_scale, &lighting, max_draws, budget_mb, &mip_skip, flip_sun, exposure, &time, script_maps, &out, json)
-        }
-        Cmd::RenderModel { model, entry, ytd, lod, technique, size, yaw, pitch, transpose, flip_sun, cull, wireframe, mip_skip, out, dump_binding } => {
-            render_model::run(&files::open(game()?)?, &model, entry.as_deref(), &ytd, &lod, &technique, size, yaw, pitch, transpose, flip_sun, cull, wireframe, mip_skip, &out, dump_binding.as_deref())
-        }
+        Cmd::Probe { pos, radius, json } => world::probe(
+            &files::open(game()?)?,
+            mode,
+            vespucci_world::Vec3::new(pos.0, pos.1, pos.2),
+            radius,
+            json,
+        ),
+        Cmd::Render {
+            pos,
+            look,
+            fov,
+            size,
+            radius,
+            lod_scale,
+            lighting,
+            max_draws,
+            budget_mb,
+            mip_skip,
+            flip_sun,
+            exposure,
+            time,
+            script_maps,
+            out,
+            json,
+        } => render::run(
+            &files::open(game()?)?,
+            mode,
+            pos,
+            look,
+            fov,
+            size,
+            radius,
+            lod_scale,
+            &lighting,
+            max_draws,
+            budget_mb,
+            &mip_skip,
+            flip_sun,
+            exposure,
+            &time,
+            script_maps,
+            &out,
+            json,
+        ),
+        Cmd::RenderModel {
+            model,
+            entry,
+            ytd,
+            lod,
+            technique,
+            size,
+            yaw,
+            pitch,
+            transpose,
+            flip_sun,
+            cull,
+            wireframe,
+            mip_skip,
+            out,
+            dump_binding,
+        } => render_model::run(
+            &files::open(game()?)?,
+            &model,
+            entry.as_deref(),
+            &ytd,
+            &lod,
+            &technique,
+            size,
+            yaw,
+            pitch,
+            transpose,
+            flip_sun,
+            cull,
+            wireframe,
+            mip_skip,
+            &out,
+            dump_binding.as_deref(),
+        ),
         Cmd::Texture { what, out } => texture::run(&files::open(game()?)?, &what, &out),
         Cmd::Compare { a, b, min_psnr } => compare::run(&a, &b, min_psnr),
-        Cmd::Shader { name, all, techniques, vars, reflect, blob, out } => {
+        Cmd::Shader {
+            name,
+            all,
+            techniques,
+            vars,
+            reflect,
+            blob,
+            out,
+        } => {
             let fs = files::open(game()?)?;
             if all {
                 shader::check_all(&fs)
             } else {
-                shader::run(&fs, &name, techniques, vars, reflect, blob.as_deref(), out.as_deref())
+                shader::run(
+                    &fs,
+                    &name,
+                    techniques,
+                    vars,
+                    reflect,
+                    blob.as_deref(),
+                    out.as_deref(),
+                )
             }
         }
     }
@@ -269,13 +389,19 @@ pub fn timed<T>(label: &str, f: impl FnOnce() -> Result<T>) -> Result<T> {
     let r = f();
     match &r {
         Ok(_) => println!("  {label}: {:.3} s", t.elapsed().as_secs_f64()),
-        Err(e) => println!("  {label}: FAILED after {:.3} s: {e}", t.elapsed().as_secs_f64()),
+        Err(e) => println!(
+            "  {label}: FAILED after {:.3} s: {e}",
+            t.elapsed().as_secs_f64()
+        ),
     }
     r
 }
 
 fn parse_vec3(s: &str) -> std::result::Result<(f32, f32, f32), String> {
-    let v: Vec<f32> = s.split(',').map(|p| p.trim().parse::<f32>().map_err(|e| e.to_string())).collect::<std::result::Result<_, _>>()?;
+    let v: Vec<f32> = s
+        .split(',')
+        .map(|p| p.trim().parse::<f32>().map_err(|e| e.to_string()))
+        .collect::<std::result::Result<_, _>>()?;
     if v.len() != 3 {
         return Err("expected X,Y,Z".into());
     }
@@ -284,5 +410,10 @@ fn parse_vec3(s: &str) -> std::result::Result<(f32, f32, f32), String> {
 
 fn parse_size(s: &str) -> std::result::Result<(u32, u32), String> {
     let (w, h) = s.split_once('x').ok_or("expected WxH")?;
-    Ok((w.parse().map_err(|e: std::num::ParseIntError| e.to_string())?, h.parse().map_err(|e: std::num::ParseIntError| e.to_string())?))
+    Ok((
+        w.parse()
+            .map_err(|e: std::num::ParseIntError| e.to_string())?,
+        h.parse()
+            .map_err(|e: std::num::ParseIntError| e.to_string())?,
+    ))
 }

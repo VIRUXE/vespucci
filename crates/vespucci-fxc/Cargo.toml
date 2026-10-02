@@ -3,6 +3,10 @@ name = "vespucci-fxc"
 description = "The game's compiled shader containers (.fxc) and DXBC reflection (RDEF, ISGN/OSGN)"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
 license.workspace = true
 
 [dependencies]

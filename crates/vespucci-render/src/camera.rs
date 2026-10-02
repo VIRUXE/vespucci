@@ -32,8 +32,19 @@ impl Camera {
         let fov: f32 = 45.0;
         let dist = radius.max(0.01) / (fov.to_radians() * 0.5).sin() * 1.1;
         let (yaw, pitch) = (yaw_deg.to_radians(), pitch_deg.to_radians());
-        let dir = Vec3::new(yaw.cos() * pitch.cos(), yaw.sin() * pitch.cos(), pitch.sin());
-        Camera { position: centre + dir * dist, target: centre, fov_deg: fov, aspect, near: (dist * 0.01).max(0.01), far: dist * 10.0 + radius }
+        let dir = Vec3::new(
+            yaw.cos() * pitch.cos(),
+            yaw.sin() * pitch.cos(),
+            pitch.sin(),
+        );
+        Camera {
+            position: centre + dir * dist,
+            target: centre,
+            fov_deg: fov,
+            aspect,
+            near: (dist * 0.01).max(0.01),
+            far: dist * 10.0 + radius,
+        }
     }
 }
 

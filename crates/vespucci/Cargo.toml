@@ -3,6 +3,10 @@ name = "vespucci"
 description = "Headless GTA V map viewer/editor for Linux"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
 license.workspace = true
 
 [[bin]]

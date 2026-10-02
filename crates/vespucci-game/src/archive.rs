@@ -7,7 +7,10 @@
 //! stores them — is a narrower window onto its parent's buffer, not a copy.
 
 use anyhow::Result;
-use rpf_archive::{build_directory_tree, list_all_files, DirNode, FileRef, GtaKeys, RpfArchive, RpfEncryption, RpfEntryKind, RpfVersion};
+use rpf_archive::{
+    build_directory_tree, list_all_files, DirNode, FileRef, GtaKeys, RpfArchive, RpfEncryption,
+    RpfEntryKind, RpfVersion,
+};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -25,7 +28,10 @@ enum Buffer {
 impl Backing {
     fn owned(data: Vec<u8>) -> Self {
         let range = 0..data.len();
-        Self { buffer: Arc::new(Buffer::Owned(data)), range }
+        Self {
+            buffer: Arc::new(Buffer::Owned(data)),
+            range,
+        }
     }
 
     fn bytes(&self) -> &[u8] {
@@ -53,11 +59,18 @@ impl Archive {
         let backing = match unsafe { memmap2::Mmap::map(&file) } {
             Ok(map) => {
                 let range = 0..map.len();
-                Backing { buffer: Arc::new(Buffer::Mapped(map)), range }
+                Backing {
+                    buffer: Arc::new(Buffer::Mapped(map)),
+                    range,
+                }
             }
             Err(_) => Backing::owned(std::fs::read(path)?),
         };
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
         Self::from_backing(backing, &name, keys)
     }
 
@@ -69,7 +82,13 @@ impl Archive {
         let archive = RpfArchive::parse(data.bytes(), name, keys)?;
         let encryption = archive.encryption;
         let root = build_directory_tree(&archive.entries);
-        Ok(Self { path: PathBuf::from(name), encryption, root, archive, data })
+        Ok(Self {
+            path: PathBuf::from(name),
+            encryption,
+            root,
+            archive,
+            data,
+        })
     }
 
     /// Opens a nested `.rpf` entry: a window onto this archive's bytes when
@@ -84,10 +103,19 @@ impl Archive {
     }
 
     fn stored_range(&self, file: &FileRef) -> Option<std::ops::Range<usize>> {
-        let RpfEntryKind::BinaryFile { file_offset, file_size, uncompressed_size, is_encrypted } = self.archive.entries[file.entry_index].kind else {
+        let RpfEntryKind::BinaryFile {
+            file_offset,
+            file_size,
+            uncompressed_size,
+            is_encrypted,
+        } = self.archive.entries[file.entry_index].kind
+        else {
             return None;
         };
-        if is_encrypted || (file_size != 0 && file_size != uncompressed_size) || uncompressed_size == 0 {
+        if is_encrypted
+            || (file_size != 0 && file_size != uncompressed_size)
+            || uncompressed_size == 0
+        {
             return None;
         }
         let offset = match self.archive.version {
@@ -101,7 +129,10 @@ impl Archive {
 
     pub fn require_keys(&self, keys: Option<&GtaKeys>) -> Result<()> {
         if keys.is_none() && matches!(self.encryption, RpfEncryption::Ng | RpfEncryption::Aes) {
-            anyhow::bail!("archive is {:?}-encrypted and no keys are available", self.encryption);
+            anyhow::bail!(
+                "archive is {:?}-encrypted and no keys are available",
+                self.encryption
+            );
         }
         Ok(())
     }
@@ -119,7 +150,10 @@ impl Archive {
             if parts.peek().is_none() {
                 return dir.files.iter().find(|f| f.name.eq_ignore_ascii_case(part));
             }
-            dir = dir.subdirs.iter().find(|d| d.name.eq_ignore_ascii_case(part))?;
+            dir = dir
+                .subdirs
+                .iter()
+                .find(|d| d.name.eq_ignore_ascii_case(part))?;
         }
         None
     }

@@ -13,7 +13,11 @@ impl<'a> Dxbc<'a> {
     pub fn parse(data: &'a [u8]) -> Result<Self> {
         ensure!(data.len() >= 32 && &data[..4] == b"DXBC", "not a DXBC blob");
         let total = u32_at(data, 24)? as usize;
-        ensure!(total <= data.len(), "DXBC size {total} exceeds blob {}", data.len());
+        ensure!(
+            total <= data.len(),
+            "DXBC size {total} exceeds blob {}",
+            data.len()
+        );
         let count = u32_at(data, 28)? as usize;
         let mut chunks = Vec::with_capacity(count);
         for i in 0..count {
@@ -27,7 +31,10 @@ impl<'a> Dxbc<'a> {
     }
 
     pub fn chunk(&self, fourcc: &[u8; 4]) -> Option<&'a [u8]> {
-        self.chunks.iter().find(|(f, _)| *f == fourcc).map(|(_, b)| *b)
+        self.chunks
+            .iter()
+            .find(|(f, _)| *f == fourcc)
+            .map(|(_, b)| *b)
     }
 
     pub fn rdef(&self) -> Result<Rdef> {
@@ -156,7 +163,11 @@ impl Rdef {
         let program_type = u16::from_le_bytes([c[18], c[19]]);
         let sm5 = major >= 5;
         // SM 5.1 (major 5, minor 1) resource bindings carry space + id.
-        let res_stride = if major > 5 || (major == 5 && minor >= 1) { 40 } else { 32 };
+        let res_stride = if major > 5 || (major == 5 && minor >= 1) {
+            40
+        } else {
+            32
+        };
         let var_stride = if sm5 { 40 } else { 24 };
 
         let mut bindings = Vec::with_capacity(res_count);
@@ -193,7 +204,13 @@ impl Rdef {
             for j in 0..var_count {
                 let v = var_off + j * var_stride;
                 let type_off = u32_at(c, v + 16)? as usize;
-                let t = |k: usize| -> Result<u16> { Ok(u16::from_le_bytes(c.get(type_off + k..type_off + k + 2).context("rdef type")?.try_into()?)) };
+                let t = |k: usize| -> Result<u16> {
+                    Ok(u16::from_le_bytes(
+                        c.get(type_off + k..type_off + k + 2)
+                            .context("rdef type")?
+                            .try_into()?,
+                    ))
+                };
                 vars.push(RdefVar {
                     name: cstr_at(c, u32_at(c, v)? as usize)?,
                     offset: u32_at(c, v + 4)?,
@@ -206,9 +223,20 @@ impl Rdef {
                     elements: t(8)?,
                 });
             }
-            cbuffers.push(RdefCBuffer { name: cstr_at(c, u32_at(c, b)? as usize)?, size: u32_at(c, b + 12)?, kind: u32_at(c, b + 20)?, vars });
+            cbuffers.push(RdefCBuffer {
+                name: cstr_at(c, u32_at(c, b)? as usize)?,
+                size: u32_at(c, b + 12)?,
+                kind: u32_at(c, b + 20)?,
+                vars,
+            });
         }
-        Ok(Rdef { major, minor, program_type, cbuffers, bindings })
+        Ok(Rdef {
+            major,
+            minor,
+            program_type,
+            cbuffers,
+            bindings,
+        })
     }
 }
 
@@ -253,7 +281,11 @@ impl Signature {
 }
 
 fn u32_at(b: &[u8], off: usize) -> Result<u32> {
-    Ok(u32::from_le_bytes(b.get(off..off + 4).with_context(|| format!("read u32 at {off}"))?.try_into()?))
+    Ok(u32::from_le_bytes(
+        b.get(off..off + 4)
+            .with_context(|| format!("read u32 at {off}"))?
+            .try_into()?,
+    ))
 }
 
 fn cstr_at(b: &[u8], off: usize) -> Result<String> {
@@ -273,7 +305,11 @@ mod tests {
     fn parses_vkd3d_output() {
         let vs = Dxbc::parse(VS).unwrap();
         let isgn = vs.input_signature().unwrap();
-        let names: Vec<_> = isgn.elements.iter().map(|e| (e.semantic.as_str(), e.index)).collect();
+        let names: Vec<_> = isgn
+            .elements
+            .iter()
+            .map(|e| (e.semantic.as_str(), e.index))
+            .collect();
         assert_eq!(names, vec![("POSITION", 0), ("COLOR", 0)]);
         let (major, _, ty) = vs.version().unwrap();
         assert_eq!((major, ty), (5, ProgramType::Vertex));

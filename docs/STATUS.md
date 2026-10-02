@@ -1,69 +1,32 @@
-# Vespucci — status and how to resume
+# Status and development log
 
-Written 2026-09-30 when work was paused mid-M3. Read this first, then `PLAN.md`.
+Newest first. The sections are dated and kept as written, so this file doubles as the project's log of what was learned when. For what the program is and how it is built, start with the [README](../README.md) and [architecture.md](architecture.md).
 
-## What Vespucci is (decisions so far)
+## Current state (2026-10-02)
 
-- An Ariane-style **desktop map editor for GTA V (Legacy PC)** with a Dear ImGui interface (imgui-rs), that **also runs headless** (CLI now, MCP server later). MCP server ships on **both** Windows and Linux; on Windows it can attach to the running editor.
-- **Desktop shell = Windows** (user's PC with the game + GPU, native D3D11, no DXVK). **Linux = headless only** (this server: no display, Haswell iGPU rejected by DXVK → lavapipe CPU rendering).
-- **Rust** workspace, building on VIRUXE's public-domain crates `rpf-archive`, `rage-formats`, `rage-render` (from rage-cli). CodeWalker is reference only (no licence). Inputs are retail game files only; the leaked source is out of scope and stays out.
-- Name "Vespucci" (no Rockstar trademarks anywhere).
+- **Milestones M0–M4 done** on Linux headless; see [PLAN.md](../PLAN.md). `vespucci render` draws the streamed world through the game's own shaders with a preview lighting setup.
+- **Next: M5** — a game-lit frame matched against RenderDoc captures of the real game (sky, time cycle, deferred lighting, post-processing). Captures wanted: A Vespucci Beach 18:30 EXTRASUNNY, B Legion Square 12:00 CLEAR, C sky, D Del Perro pier 21:30 CLEAR, E overcast — 1280×720, MSAA off, player hidden, time frozen.
+- Then **M6**: the editor itself (Dear ImGui shell on Windows, MCP server on both platforms).
+- Known rendering issues: downtown glass/reflective buildings render dark (forward techniques with stand-in reflections); distant SLOD pieces can appear to float when the LOD under them is outside `--radius` or in a different distance band; no sky, water, interiors or vehicles yet. Details in [rendering.md](rendering.md).
+- The Windows build compiles (`x86_64-pc-windows-gnu`) but `vespucci.exe doctor --gpu` has not been run on a Windows machine yet.
 
-## Environment (this server)
+## Development environment (where the numbers below come from)
 
 | Item | Value |
 |---|---|
-| Project | `/root/vespucci` (git initialised, branch `main`, **nothing committed yet** — user never asked for commits) |
-| Game | `/root/gtav-legacy` — Steam Legacy 1.0.3889.0, 121 GB, all RPFs NG-encrypted, 92 DLC packs. Set `GTAV_PATH=/root/gtav-legacy` |
-| Machine | i3-4130T (2c/4t AVX2), 5 GB RAM, 18 GB free disk, no X/Wayland, SSH only |
-| DXVK-native | v3.1.1 built with SDL3 (`offscreen` WSI) → `/opt/dxvk-native/lib/x86_64-linux-gnu`, registered via `/etc/ld.so.conf.d/dxvk-native.conf`; source tree `/root/src/dxvk-native` |
-| Toolchain | Rust 1.95, bindgen (clang 21), `vkd3d-compiler` (HLSL→DXBC on Linux), mingw-w64 + target `x86_64-pc-windows-gnu` for the Windows build |
-| Caches | `~/.cache/vespucci/{keys,dxvk,mesa}`, `~/.cache/dxvk` |
-| Reference sources | `/root/src/{rage-cli,rage-formats,rpf-archive-rs,rage-render}` (public domain); CodeWalker files fetched to `/tmp/FxcFile.cs`, `/tmp/GameFileCache.cs` (temporary) |
-| Windows exe | `/srv/samba/share/vespucci/vespucci.exe` (release build of M1 state). **User has not yet run `vespucci.exe doctor --gpu` on the PC** — that is the open half of M1. |
-
-Env for headless runs is set by the binary itself (`vespucci_d3d11::setup_env`); `scripts/vespucci-env.sh` mirrors it for other tools.
-
-## Workspace
-
-```
-crates/vespucci-d3d11   FFI over DXVK-native / mingw d3d11.h (bindgen, C vtables) + safe wrappers   ✅ M0 verified (Linux + Windows cross-build)
-crates/vespucci-game    keys from GTA5.exe (cached), mmap archives, DLC load order, GameFs flat file table   ✅ M1 (Linux)
-crates/vespucci-fxc     .fxc container + DXBC RDEF/ISGN reflection   ✅ M2 (696 files / 21,374 blobs, 0 failures)
-crates/vespucci-world   ArchetypeDb, YmapTree (cache_y.dat), entity reader (LOD fields, car gens), MapSet (SP/MP change sets)   ✅ M2
-crates/vespucci-render  ⚠️ INCOMPLETE — see "Where work stopped"
-crates/vespucci         CLI: doctor, ls, cat, find, index, probe, shader
-docs/binding.md         shader-binding facts (read before touching render)
-docs/THIRD_PARTY.md     provenance of carried-over code
-shaders/m0/tri.hlsl + .dxbc   M0 triangle (vkd3d-compiler output, committed as bytes)
-tests/out/              scratch outputs (gitignored): extracted fxc files, setup2.xml of all packs, mpheist content.xml
-```
-
-`.cargo/config.toml`: Linux rpath flags (DT_RPATH via `--disable-new-dtags`) and the mingw linker for Windows.
+| Game | Steam GTA V Legacy 1.0.3889.0, 121 GB, all archives NG-encrypted, 92 DLC packs |
+| Machine | Intel i3-4130T (2 cores / 4 threads, AVX2), 5 GB RAM, no display; the Haswell iGPU only exposes Vulkan 1.2, which DXVK rejects, so everything renders on **lavapipe** (CPU) |
+| DXVK-native | v3.1.1, SDL3 `offscreen` backend, installed to `/opt/dxvk-native` (see [building.md](building.md)) |
+| Toolchain | Rust 1.95, bindgen with clang 21, `vkd3d-compiler` 2.1 for the helper HLSL, mingw-w64 (gcc 15) for the Windows target |
 
 ## Verified numbers (build 1.0.3889.0)
 
-- `doctor --gpu` on lavapipe: device 0.23 s, first draw 0.10 s (JIT), cached 0.002 s, pixels correct.
-- GameFs: 179 archives, 389,309 files, scan 0.8 s, 229 MB RSS. Keys recovered from the exe (AES key by SHA-1 search; NG keys via rpf-archive's bundled magic data).
-- Shaders: current ones live in `update/update2.rpf/common/shaders/win32_40_final/` (321), originals in `common.rpf/...`; `_lq_` and `_nvstereo_` variants exist → lookup is **path-based** (`vespucci_fxc::SHADER_DIRS`).
-- Index: 159,367 archetypes / 2,759 ytyps in 0.9 s; 11,082 ymaps (10,821 from `*_cache_y.dat`) in 0.3 s.
-- Map sets: story mode 4,602 ymaps, online 5,425; archetypes unaffected. Beach probe (SP, 300 m): 171 maps, 21,380 entities, 3,702 models, 499 MB model data.
-- Tests: `VESPUCCI_GAME=/root/gtav-legacy cargo test --release` — game crate 2, world crate 3, fxc unit 1 (+1 with `VESPUCCI_FXC_DIR=tests/out/fxc`). All passing as of the last run before M3 edits.
-
-## Commands that work
-
-```
-export GTAV_PATH=/root/gtav-legacy
-V=./target/release/vespucci
-$V doctor --gpu --out /tmp/m0.png
-$V ls common.rpf/shaders/win32_40_final | wc -l
-$V cat update/update.rpf/common/data/dlclist.xml | head
-$V find 'prop_cs_heist_bag*' -l ;  $V find --ext ydr --name prop_cs_heist_bag_01
-$V --mapset sp index ;  $V --mapset mp index ;  $V --mapset all index
-$V probe --pos=-1280,-1450,4 --radius 300          # story mode by default
-$V shader normal_spec [--vars] [--reflect] [--blob vs:6 --out x.dxbc] ;  $V shader --all
-cargo build --release --target x86_64-pc-windows-gnu && cp target/x86_64-pc-windows-gnu/release/vespucci.exe /srv/samba/share/vespucci/
-```
+- `doctor --gpu` on lavapipe: device 0.23 s, first draw 0.10 s (pipeline JIT), cached draw 0.002 s.
+- `GameFs`: 179 archives, 389,309 files, scan 0.8 s, 229 MB RSS. Keys recovered from the exe and cached.
+- Shaders: 696 `.fxc` files / 21,374 DXBC blobs parse and reflect without failures; the current ones live in `update/update2.rpf/common/shaders/win32_40_final/` (321 files), originals in `common.rpf`.
+- Index: 159,367 archetypes from 2,759 ytyps in 0.9 s; 11,082 ymaps (10,821 from `*_cache_y.dat`) in 0.3 s.
+- Map sets: story mode 4,602 ymaps, online 5,425. Beach probe (story mode, 300 m): 171 maps, 21,380 entities, 3,702 models, 499 MB of model data referenced.
+- Tests: `VESPUCCI_GAME=… cargo test --release` — game crate 2, world crate 3, fxc 1 (+1 with `VESPUCCI_FXC_DIR`); goldens in `scripts/golden.sh`.
 
 ## Update 2026-10-02 — M4 done (headless): streamed world
 

@@ -42,12 +42,19 @@ pub struct Globals {
 
 impl Globals {
     pub fn new() -> Globals {
-        Globals { blocks: HashMap::new() }
+        Globals {
+            blocks: HashMap::new(),
+        }
     }
 
     /// The block for a global cbuffer, created from this shader's reflection
     /// the first time it is seen, with the `.fxc` defaults written in.
-    pub fn block(&mut self, dev: &Device, cb: &vespucci_fxc::dxbc::RdefCBuffer, fxc: &FxcFile) -> Result<&mut CBufferBlock> {
+    pub fn block(
+        &mut self,
+        dev: &Device,
+        cb: &vespucci_fxc::dxbc::RdefCBuffer,
+        fxc: &FxcFile,
+    ) -> Result<&mut CBufferBlock> {
         let key = cb.name.to_lowercase();
         if !self.blocks.contains_key(&key) {
             let mut block = CBufferBlock::new(dev, cb)?;
@@ -77,7 +84,11 @@ impl Default for Globals {
 
 fn apply_fxc_defaults(block: &mut CBufferBlock, fxc: &FxcFile, cbuffer_name: &str) {
     let hash = joaat(&cbuffer_name.to_lowercase());
-    for v in fxc.variables.iter().filter(|v| v.cbuffer_hash == hash && !v.values.is_empty()) {
+    for v in fxc
+        .variables
+        .iter()
+        .filter(|v| v.cbuffer_hash == hash && !v.values.is_empty())
+    {
         let floats = v.default_floats();
         if !block.set_f32(joaat(&v.name), &floats) {
             block.set_f32(joaat(&v.name.to_lowercase()), &floats);
@@ -139,25 +150,46 @@ impl Material {
         let mut params_applied = 0;
         let mut params_unmatched = Vec::new();
 
-        for (stage, rdef) in [(Stage::Vertex, &vs.stage.rdef), (Stage::Pixel, &ps.stage.rdef)] {
+        for (stage, rdef) in [
+            (Stage::Vertex, &vs.stage.rdef),
+            (Stage::Pixel, &ps.stage.rdef),
+        ] {
             for b in rdef.bindings.iter().filter(|b| b.kind == BindKind::CBuffer) {
-                let Some(cb) = rdef.cbuffers.iter().find(|c| c.name == b.name) else { continue };
+                let Some(cb) = rdef.cbuffers.iter().find(|c| c.name == b.name) else {
+                    continue;
+                };
                 if is_global(&cb.name) {
                     globals.block(dev, cb, fxc)?;
-                    cbuffers.push(BoundCBuffer { stage, slot: b.bind_point, global: Some(cb.name.to_lowercase()), block: None });
+                    cbuffers.push(BoundCBuffer {
+                        stage,
+                        slot: b.bind_point,
+                        global: Some(cb.name.to_lowercase()),
+                        block: None,
+                    });
                 } else {
                     let mut block = CBufferBlock::new(dev, cb)?;
                     apply_fxc_defaults(&mut block, fxc, &cb.name);
                     for p in &fx.parameters {
                         if let ShaderParameterValue::Vectors(v) = &p.value {
-                            let floats: Vec<f32> = v.iter().flat_map(|x| [x.x, x.y, x.z, x.w]).collect();
+                            let floats: Vec<f32> =
+                                v.iter().flat_map(|x| [x.x, x.y, x.z, x.w]).collect();
                             if block.set_f32(p.name_hash, &floats) {
                                 params_applied += 1;
-                                log::trace!("{shader_name}: {}:{} = {:?}", block.name, block.name_of(p.name_hash).unwrap_or("?"), &floats[..floats.len().min(8)]);
+                                log::trace!(
+                                    "{shader_name}: {}:{} = {:?}",
+                                    block.name,
+                                    block.name_of(p.name_hash).unwrap_or("?"),
+                                    &floats[..floats.len().min(8)]
+                                );
                             }
                         }
                     }
-                    cbuffers.push(BoundCBuffer { stage, slot: b.bind_point, global: None, block: Some(block) });
+                    cbuffers.push(BoundCBuffer {
+                        stage,
+                        slot: b.bind_point,
+                        global: None,
+                        block: Some(block),
+                    });
                 }
             }
         }
@@ -166,7 +198,10 @@ impl Material {
             for item in spec.split(';') {
                 if let Some((target, values)) = item.split_once('=') {
                     if let Some((cb, var)) = target.split_once(':') {
-                        let v: Vec<f32> = values.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                        let v: Vec<f32> = values
+                            .split(',')
+                            .filter_map(|x| x.trim().parse().ok())
+                            .collect();
                         for c in &mut cbuffers {
                             if let Some(b) = &mut c.block {
                                 if b.name == cb {
@@ -180,7 +215,9 @@ impl Material {
         }
         for p in &fx.parameters {
             if let ShaderParameterValue::Vectors(_) = &p.value {
-                let matched = cbuffers.iter().any(|c| c.block.as_ref().is_some_and(|b| b.has(p.name_hash)));
+                let matched = cbuffers
+                    .iter()
+                    .any(|c| c.block.as_ref().is_some_and(|b| b.has(p.name_hash)));
                 if !matched {
                     params_unmatched.push(format!("{:#010x}", p.name_hash));
                 }
@@ -189,18 +226,30 @@ impl Material {
 
         let mut bound_textures = Vec::new();
         let mut samplers = Vec::new();
-        for (stage, rdef) in [(Stage::Vertex, &vs.stage.rdef), (Stage::Pixel, &ps.stage.rdef)] {
+        for (stage, rdef) in [
+            (Stage::Vertex, &vs.stage.rdef),
+            (Stage::Pixel, &ps.stage.rdef),
+        ] {
             for b in &rdef.bindings {
                 match b.kind {
                     BindKind::Sampler => samplers.push((stage, b.bind_point, b.name.clone())),
                     BindKind::Texture => {
                         // The material parameter of the same name says which texture.
                         let (h1, h2) = (joaat(&b.name), joaat(&b.name.to_lowercase()));
-                        let param = fx.parameters.iter().find(|p| p.name_hash == h1 || p.name_hash == h2);
+                        let param = fx
+                            .parameters
+                            .iter()
+                            .find(|p| p.name_hash == h1 || p.name_hash == h2);
                         let mut texture_name = None;
                         let is_shadow = b.name.to_lowercase().contains("shadow");
                         let engine = param.is_none() && !is_shadow;
-                        let mut srv = if is_shadow { textures.unshadowed.clone_ptr() } else if engine { textures.engine.clone_ptr() } else { textures.missing.clone_ptr() };
+                        let mut srv = if is_shadow {
+                            textures.unshadowed.clone_ptr()
+                        } else if engine {
+                            textures.engine.clone_ptr()
+                        } else {
+                            textures.missing.clone_ptr()
+                        };
                         let mut found = is_shadow;
                         if let Some(p) = param {
                             if let ShaderParameterValue::Texture { name, name_hash } = &p.value {
@@ -219,18 +268,43 @@ impl Material {
                                 }
                             }
                         }
-                        bound_textures.push(BoundTexture { stage, slot: b.bind_point, name: b.name.clone(), texture_name, srv, found, engine });
+                        bound_textures.push(BoundTexture {
+                            stage,
+                            slot: b.bind_point,
+                            name: b.name.clone(),
+                            texture_name,
+                            srv,
+                            found,
+                            engine,
+                        });
                     }
                     _ => {}
                 }
             }
         }
 
-        Ok(Material { shader_name: shader_name.to_string(), technique: technique.to_string(), vs, ps, cbuffers, textures: bound_textures, samplers, params_applied, params_unmatched, bucket: fx.render_bucket })
+        Ok(Material {
+            shader_name: shader_name.to_string(),
+            technique: technique.to_string(),
+            vs,
+            ps,
+            cbuffers,
+            textures: bound_textures,
+            samplers,
+            params_applied,
+            params_unmatched,
+            bucket: fx.render_bucket,
+        })
     }
 
     /// Uploads dirty material buffers and binds everything for a draw.
-    pub fn bind(&mut self, dev: &Device, globals: &mut Globals, sampler: &ComPtr<ID3D11SamplerState>, comparison: &ComPtr<ID3D11SamplerState>) -> Result<()> {
+    pub fn bind(
+        &mut self,
+        dev: &Device,
+        globals: &mut Globals,
+        sampler: &ComPtr<ID3D11SamplerState>,
+        comparison: &ComPtr<ID3D11SamplerState>,
+    ) -> Result<()> {
         for c in &mut self.cbuffers {
             match (&c.global, &mut c.block) {
                 (Some(g), _) => {
@@ -250,7 +324,11 @@ impl Material {
             dev.set_shader_resource(t.stage, t.slot, &t.srv);
         }
         for (stage, slot, name) in &self.samplers {
-            let s = if name.to_lowercase().contains("shadow") { comparison } else { sampler };
+            let s = if name.to_lowercase().contains("shadow") {
+                comparison
+            } else {
+                sampler
+            };
             dev.set_sampler(*stage, *slot, s);
         }
         Ok(())

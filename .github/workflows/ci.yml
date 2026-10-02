@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The Linux build needs DXVK-native headers and a Vulkan driver, which is a
+  # 20-minute build on a fresh runner. The Windows target only needs mingw-w64
+  # (its d3d11/dxgi headers) and libclang for bindgen, so CI checks that one:
+  # every crate compiles, and the shared code is exercised.
+  windows-cross:
+    name: Build (x86_64-pc-windows-gnu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mingw-w64 and libclang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64 libclang-dev clang
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add x86_64-pc-windows-gnu
+          rustup component add rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-gnu
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+      - name: cargo build (Windows target)
+        run: cargo build --release --target x86_64-pc-windows-gnu
+      - name: Upload vespucci.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: vespucci-windows-x86_64
+          path: target/x86_64-pc-windows-gnu/release/vespucci.exe
+          retention-days: 14
+
+  # Crates that do not touch D3D11 build and test natively without the game.
+  linux-no-gpu:
+    name: Unit tests (no game, no GPU)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: linux-no-gpu
+      - name: Test the game-file and shader crates
+        run: cargo test --release -p vespucci-game -p vespucci-fxc -p vespucci-world

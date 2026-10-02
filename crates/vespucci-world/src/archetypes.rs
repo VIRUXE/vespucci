@@ -27,7 +27,11 @@ pub struct ArchetypeRec {
 
 impl ArchetypeRec {
     pub fn bounding_sphere(&self) -> (Vec3, f32) {
-        let c = Vec3::new((self.bb_min.x + self.bb_max.x) * 0.5, (self.bb_min.y + self.bb_max.y) * 0.5, (self.bb_min.z + self.bb_max.z) * 0.5);
+        let c = Vec3::new(
+            (self.bb_min.x + self.bb_max.x) * 0.5,
+            (self.bb_min.y + self.bb_max.y) * 0.5,
+            (self.bb_min.z + self.bb_max.z) * 0.5,
+        );
         let dx = self.bb_max.x - c.x;
         let dy = self.bb_max.y - c.y;
         let dz = self.bb_max.z - c.z;
@@ -37,7 +41,11 @@ impl ArchetypeRec {
     /// The model file the game loads: `(ext, stem hash)`; drawable
     /// dictionaries hold the model as a member named by `asset_name_hash`.
     pub fn model_file(&self) -> (&'static str, u32) {
-        let name = if self.asset_name_hash != 0 { self.asset_name_hash } else { self.name_hash };
+        let name = if self.asset_name_hash != 0 {
+            self.asset_name_hash
+        } else {
+            self.name_hash
+        };
         match self.asset_type {
             Archetype::ASSET_TYPE_FRAGMENT => ("yft", name),
             Archetype::ASSET_TYPE_DRAWABLEDICTIONARY => ("ydd", self.drawable_dictionary_hash),
@@ -58,13 +66,21 @@ impl ArchetypeDb {
     /// load order, so a DLC's redefinition of an archetype wins.
     pub fn build(fs: &GameFs) -> Result<ArchetypeDb> {
         let t = Instant::now();
-        let mut locs: Vec<_> = fs.files.iter().enumerate().filter(|(_, f)| f.ext == "ytyp").collect();
+        let mut locs: Vec<_> = fs
+            .files
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.ext == "ytyp")
+            .collect();
         // `fs.files` is already in archive rank order; keep it stable for the merge.
         locs.sort_by_key(|(i, _)| *i);
         let parsed: Vec<(u32, Result<Vec<Archetype>>)> = locs
             .par_iter()
             .map(|(_, loc)| {
-                let r = fs.read(loc).and_then(|d| parse_ytyp(&d)).map(|y| y.archetypes);
+                let r = fs
+                    .read(loc)
+                    .and_then(|d| parse_ytyp(&d))
+                    .map(|y| y.archetypes);
                 (loc.stem_hash, r)
             })
             .collect();
@@ -99,7 +115,13 @@ impl ArchetypeDb {
                 }
             }
         }
-        log::info!("{} archetypes from {} ytyps ({} failed) in {:.1} s", db.by_hash.len(), db.ytyps_parsed, db.ytyps_failed, t.elapsed().as_secs_f64());
+        log::info!(
+            "{} archetypes from {} ytyps ({} failed) in {:.1} s",
+            db.by_hash.len(),
+            db.ytyps_parsed,
+            db.ytyps_failed,
+            t.elapsed().as_secs_f64()
+        );
         Ok(db)
     }
 

@@ -24,13 +24,19 @@ impl TxdParents {
                 Ok(rels) => {
                     t.files_read += 1;
                     for r in rels {
-                        t.parents.entry(joaat(&r.child.to_lowercase())).or_insert_with(|| joaat(&r.parent.to_lowercase()));
+                        t.parents
+                            .entry(joaat(&r.child.to_lowercase()))
+                            .or_insert_with(|| joaat(&r.parent.to_lowercase()));
                     }
                 }
                 Err(e) => log::debug!("{}: {e:#}", f.full_path(fs)),
             }
         }
-        log::info!("{} texture-parent relationships from {} files", t.parents.len(), t.files_read);
+        log::info!(
+            "{} texture-parent relationships from {} files",
+            t.parents.len(),
+            t.files_read
+        );
         Ok(t)
     }
 

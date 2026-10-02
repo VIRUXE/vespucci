@@ -7,12 +7,27 @@ use crate::camera::{pack, Camera};
 use crate::material::Globals;
 use glam::{Mat4, Vec3};
 
-pub fn apply(globals: &mut Globals, cam: &Camera, width: u32, height: u32, sun_sign: f32, transpose: bool) {
+pub fn apply(
+    globals: &mut Globals,
+    cam: &Camera,
+    width: u32,
+    height: u32,
+    sun_sign: f32,
+    transpose: bool,
+) {
     let view = cam.view();
     let proj = cam.proj();
     set_world(globals, Mat4::IDENTITY, &view, &proj, transpose);
     if let Some(m) = globals.get_mut("misc_globals") {
-        m.set_by_name("globalScreenSize", &[width as f32, height as f32, 1.0 / width as f32, 1.0 / height as f32]);
+        m.set_by_name(
+            "globalScreenSize",
+            &[
+                width as f32,
+                height as f32,
+                1.0 / width as f32,
+                1.0 / height as f32,
+            ],
+        );
         // The forward pixel shaders scale their final colour by globalScalars3.z (0 in the .fxc defaults).
         m.set_by_name("globalScalars3", &[16.0, 0.0625, 1.0, 1.0]);
     }
@@ -20,7 +35,14 @@ pub fn apply(globals: &mut Globals, cam: &Camera, width: u32, height: u32, sun_s
     if let Some(m) = globals.get_mut("lighting_globals") {
         m.set_by_name("gDirectionalLight", &[sun.x, sun.y, sun.z, 0.0]);
         m.set_by_name("gDirectionalColour", &[1.0, 0.98, 0.92, 1.0]);
-        for name in ["gLightNaturalAmbient0", "gLightNaturalAmbient1", "gLightArtificialIntAmbient0", "gLightArtificialIntAmbient1", "gLightArtificialExtAmbient0", "gLightArtificialExtAmbient1"] {
+        for name in [
+            "gLightNaturalAmbient0",
+            "gLightNaturalAmbient1",
+            "gLightArtificialIntAmbient0",
+            "gLightArtificialIntAmbient1",
+            "gLightArtificialExtAmbient0",
+            "gLightArtificialExtAmbient1",
+        ] {
             m.set_by_name(name, &[0.35, 0.37, 0.42, 1.0]);
         }
         m.set_by_name("gDirectionalAmbientColour", &[0.2, 0.2, 0.2, 1.0]);
@@ -64,9 +86,15 @@ pub fn apply(globals: &mut Globals, cam: &Camera, width: u32, height: u32, sun_s
         for item in spec.split(';') {
             if let Some((target, values)) = item.split_once('=') {
                 if let Some((cb, var)) = target.split_once(':') {
-                    let v: Vec<f32> = values.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                    let v: Vec<f32> = values
+                        .split(',')
+                        .filter_map(|x| x.trim().parse().ok())
+                        .collect();
                     let ok = globals.get_mut(cb).is_some_and(|m| m.set_by_name(var, &v));
-                    log::info!("VESPUCCI_SET_GLOBAL {cb}:{var} = {v:?} -> {}", if ok { "set" } else { "no such variable" });
+                    log::info!(
+                        "VESPUCCI_SET_GLOBAL {cb}:{var} = {v:?} -> {}",
+                        if ok { "set" } else { "no such variable" }
+                    );
                 }
             }
         }

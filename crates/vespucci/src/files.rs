@@ -13,7 +13,9 @@ pub fn open(game: &Path) -> Result<GameFs> {
         fs.files.len(),
         fs.archives.len(),
         t.elapsed().as_secs_f64(),
-        peak_rss().map(|mb| format!(", peak RSS {mb} MB")).unwrap_or_default()
+        peak_rss()
+            .map(|mb| format!(", peak RSS {mb} MB"))
+            .unwrap_or_default()
     );
     Ok(fs)
 }
@@ -72,14 +74,22 @@ fn strip_dir_prefix<'a>(full: &'a str, prefix: &str) -> Option<&'a str> {
 
 fn print_entry(name: &str, size: u32, mem: u32, res: bool, long: bool) {
     if long {
-        println!("{:>10} {:>10} {} {}", size, mem, if res { "rsc" } else { "bin" }, name);
+        println!(
+            "{:>10} {:>10} {} {}",
+            size,
+            mem,
+            if res { "rsc" } else { "bin" },
+            name
+        );
     } else {
         println!("{name}");
     }
 }
 
 pub fn cat(fs: &GameFs, path: &str, out: Option<&Path>) -> Result<()> {
-    let loc = fs.get(path).with_context(|| format!("'{path}' is not in the game files"))?;
+    let loc = fs
+        .get(path)
+        .with_context(|| format!("'{path}' is not in the game files"))?;
     let data = fs.read(loc)?;
     match out {
         Some(p) => {
@@ -95,7 +105,14 @@ pub fn cat(fs: &GameFs, path: &str, out: Option<&Path>) -> Result<()> {
 }
 
 /// Finds files by name glob (`*`/`?`), by exact name of a type, or by stem hash.
-pub fn find(fs: &GameFs, ext: Option<&str>, name: Option<&str>, hash: Option<&str>, glob: Option<&str>, long: bool) -> Result<()> {
+pub fn find(
+    fs: &GameFs,
+    ext: Option<&str>,
+    name: Option<&str>,
+    hash: Option<&str>,
+    glob: Option<&str>,
+    long: bool,
+) -> Result<()> {
     if let Some(h) = hash {
         let h = u32::from_str_radix(h.trim_start_matches("0x"), 16).context("hash must be hex")?;
         let ext = ext.context("--hash needs --ext")?;
@@ -112,7 +129,10 @@ pub fn find(fs: &GameFs, ext: Option<&str>, name: Option<&str>, hash: Option<&st
         }
         return Ok(());
     }
-    let pattern = glob.or(name).context("give --glob, --name with --ext, or --hash with --ext")?.to_lowercase();
+    let pattern = glob
+        .or(name)
+        .context("give --glob, --name with --ext, or --hash with --ext")?
+        .to_lowercase();
     let mut n = 0;
     for f in &fs.files {
         if ext.is_some_and(|e| !f.ext.eq_ignore_ascii_case(e)) {

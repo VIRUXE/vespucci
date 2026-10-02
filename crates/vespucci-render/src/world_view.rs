@@ -102,9 +102,17 @@ fn technique_candidates(lighting: Lighting, bucket: u8) -> Vec<&'static str> {
         Lighting::Unlit => v.extend(["unlit_draw", "draw"]),
         Lighting::Basic => {
             if bucket == 3 {
-                v.extend(["lightweightHighQuality0CutOut_draw", "lightweight0CutOut_draw"]);
+                v.extend([
+                    "lightweightHighQuality0CutOut_draw",
+                    "lightweight0CutOut_draw",
+                ]);
             }
-            v.extend(["lightweightHighQuality0_draw", "lightweight0_draw", "draw", "unlit_draw"]);
+            v.extend([
+                "lightweightHighQuality0_draw",
+                "lightweight0_draw",
+                "draw",
+                "unlit_draw",
+            ]);
         }
     }
     v
@@ -166,13 +174,33 @@ impl Ctx<'_> {
         entry
     }
 
-    fn load_model(&mut self, archetype: u32, ext: &str, hash: u32, entry_hash: u32, mip_skip: u8) -> Result<GpuModel> {
-        let loc = self.fs.by_hash(ext, hash).with_context(|| format!("no .{ext} with hash {hash:#010x}"))?;
+    fn load_model(
+        &mut self,
+        archetype: u32,
+        ext: &str,
+        hash: u32,
+        entry_hash: u32,
+        mip_skip: u8,
+    ) -> Result<GpuModel> {
+        let loc = self
+            .fs
+            .by_hash(ext, hash)
+            .with_context(|| format!("no .{ext} with hash {hash:#010x}"))?;
         let data = self.fs.read(loc)?;
         let kind = DrawableKind::from_extension(ext).unwrap();
         let mut entries = parse_drawables(&data, kind)?;
-        let idx = if ext == "ydd" { entries.iter().position(|d| d.hash == entry_hash).unwrap_or(0) } else { 0 };
         anyhow::ensure!(!entries.is_empty(), "no drawables");
+        let idx = if ext == "ydd" {
+            match entries.iter().position(|d| d.hash == entry_hash) {
+                Some(i) => i,
+                None => {
+                    log::debug!("ydd {}: entry {entry_hash:#010x} not among its {} entries ({:x?}); drawing entry 0", loc.name, entries.len(), entries.iter().map(|d| d.hash).take(6).collect::<Vec<_>>());
+                    0
+                }
+            }
+        } else {
+            0
+        };
         let drawable = entries.swap_remove(idx.min(entries.len() - 1)).drawable;
 
         let sources = self.texture_sources(archetype, hash);
@@ -182,22 +210,48 @@ impl Ctx<'_> {
             let embedded = &sg.textures;
             for fx in &sg.shaders {
                 let find = |h: u32| -> Option<YtdTexture> {
-                    embedded.iter().find(|t| t.name_hash == h).cloned().or_else(|| sources.iter().find_map(|s| s.iter().find(|t| t.name_hash == h).cloned()))
+                    embedded
+                        .iter()
+                        .find(|t| t.name_hash == h)
+                        .cloned()
+                        .or_else(|| {
+                            sources
+                                .iter()
+                                .find_map(|s| s.iter().find(|t| t.name_hash == h).cloned())
+                        })
                 };
                 let built = (|| -> Result<Material> {
                     let program = self.shaders.get(self.fs, fx.name_hash)?;
                     let mut program = program.borrow_mut();
                     // Debug: VESPUCCI_SKIP_SHADER=a,b leaves out materials using these shaders.
                     if let Ok(list) = std::env::var("VESPUCCI_SKIP_SHADER") {
-                        if list.split(',').any(|s| s.trim().eq_ignore_ascii_case(&program.name)) {
+                        if list
+                            .split(',')
+                            .any(|s| s.trim().eq_ignore_ascii_case(&program.name))
+                        {
                             anyhow::bail!("skipped by VESPUCCI_SKIP_SHADER");
                         }
                     }
                     let techniques = technique_candidates(lighting, fx.render_bucket);
-                    let technique = program.pick_technique(&techniques).with_context(|| format!("{}: none of {:?}", program.name, techniques))?.to_string();
+                    let technique = program
+                        .pick_technique(&techniques)
+                        .with_context(|| format!("{}: none of {:?}", program.name, techniques))?
+                        .to_string();
                     let (vs, ps) = program.technique_stages(self.dev, &technique)?;
                     let name = program.name.clone();
-                    Material::build(self.dev, &program.fxc, &name, &technique, vs, ps, fx, &mut self.globals, &mut self.textures, find, mip_skip)
+                    Material::build(
+                        self.dev,
+                        &program.fxc,
+                        &name,
+                        &technique,
+                        vs,
+                        ps,
+                        fx,
+                        &mut self.globals,
+                        &mut self.textures,
+                        find,
+                        mip_skip,
+                    )
                 })();
                 match built {
                     Ok(m) => {
@@ -220,7 +274,12 @@ impl Ctx<'_> {
                 }
             }
         }
-        Ok(GpuModel { drawable, materials, lods: HashMap::new(), bytes: 0 })
+        Ok(GpuModel {
+            drawable,
+            materials,
+            lods: HashMap::new(),
+            bytes: 0,
+        })
     }
 
     fn lod(&mut self, model: &Rc<std::cell::RefCell<GpuModel>>, level: u8) -> Result<Rc<GpuLod>> {
@@ -228,8 +287,19 @@ impl Ctx<'_> {
             return Ok(l.clone());
         }
         let mut m = model.borrow_mut();
-        let lod_level = [LodLevel::High, LodLevel::Medium, LodLevel::Low, LodLevel::VeryLow][level as usize];
-        let lod = m.drawable.lods.iter().find(|l| l.level == lod_level).or_else(|| m.drawable.lods.first()).context("no lods")?;
+        let lod_level = [
+            LodLevel::High,
+            LodLevel::Medium,
+            LodLevel::Low,
+            LodLevel::VeryLow,
+        ][level as usize];
+        let lod = m
+            .drawable
+            .lods
+            .iter()
+            .find(|l| l.level == lod_level)
+            .or_else(|| m.drawable.lods.first())
+            .context("no lods")?;
         let mut geos = Vec::new();
         let mut bytes = 0;
         for model_part in &lod.models {
@@ -238,20 +308,61 @@ impl Ctx<'_> {
                 continue;
             }
             for geo in &model_part.geometries {
-                let (Some(vb), Some(ib)) = (&geo.vertex_buffer, &geo.index_buffer) else { continue };
-                let Some(decl) = &vb.declaration else { continue };
-                let Some(Some(material)) = m.materials.get(geo.shader_id as usize) else { continue };
-                let inputs = material.vs.stage.inputs.as_ref().context("vs without input signature")?;
-                let (layout, _) = self.layouts.get(self.dev, decl, inputs, &material.vs.stage.dxbc)?;
-                let vbuf = self.dev.create_buffer(&vb.data, D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_IMMUTABLE)?;
-                let (ibytes, index_format) = if ib.indices.iter().all(|&i| i < 65536) {
-                    (ib.indices.iter().flat_map(|&i| (i as u16).to_le_bytes()).collect::<Vec<u8>>(), DXGI_FORMAT_R16_UINT)
-                } else {
-                    (ib.indices.iter().flat_map(|&i| i.to_le_bytes()).collect::<Vec<u8>>(), DXGI_FORMAT_R32_UINT)
+                let (Some(vb), Some(ib)) = (&geo.vertex_buffer, &geo.index_buffer) else {
+                    continue;
                 };
-                let ibuf = self.dev.create_buffer(&ibytes, D3D11_BIND_INDEX_BUFFER, D3D11_USAGE_IMMUTABLE)?;
+                let Some(decl) = &vb.declaration else {
+                    continue;
+                };
+                let Some(Some(material)) = m.materials.get(geo.shader_id as usize) else {
+                    continue;
+                };
+                let inputs = material
+                    .vs
+                    .stage
+                    .inputs
+                    .as_ref()
+                    .context("vs without input signature")?;
+                let (layout, _) =
+                    self.layouts
+                        .get(self.dev, decl, inputs, &material.vs.stage.dxbc)?;
+                let vbuf = self.dev.create_buffer(
+                    &vb.data,
+                    D3D11_BIND_VERTEX_BUFFER,
+                    D3D11_USAGE_IMMUTABLE,
+                )?;
+                let (ibytes, index_format) = if ib.indices.iter().all(|&i| i < 65536) {
+                    (
+                        ib.indices
+                            .iter()
+                            .flat_map(|&i| (i as u16).to_le_bytes())
+                            .collect::<Vec<u8>>(),
+                        DXGI_FORMAT_R16_UINT,
+                    )
+                } else {
+                    (
+                        ib.indices
+                            .iter()
+                            .flat_map(|&i| i.to_le_bytes())
+                            .collect::<Vec<u8>>(),
+                        DXGI_FORMAT_R32_UINT,
+                    )
+                };
+                let ibuf = self.dev.create_buffer(
+                    &ibytes,
+                    D3D11_BIND_INDEX_BUFFER,
+                    D3D11_USAGE_IMMUTABLE,
+                )?;
                 bytes += vb.data.len() + ibytes.len();
-                geos.push(GpuGeo { material: geo.shader_id as usize, vb: vbuf, stride: vb.vertex_stride as u32, ib: ibuf, index_format, index_count: ib.indices.len() as u32, layout });
+                geos.push(GpuGeo {
+                    material: geo.shader_id as usize,
+                    vb: vbuf,
+                    stride: vb.vertex_stride as u32,
+                    ib: ibuf,
+                    index_format,
+                    index_count: ib.indices.len() as u32,
+                    layout,
+                });
             }
         }
         self.report.geometry_bytes += bytes;
@@ -265,17 +376,30 @@ impl Ctx<'_> {
 /// Drawable LOD for a distance: the first level whose threshold the distance is under.
 fn pick_lod(d: &Drawable, distance: f32) -> Option<u8> {
     for (i, &threshold) in d.lod_distances.iter().enumerate() {
-        if distance < threshold && d.lods.iter().any(|l| l.level == [LodLevel::High, LodLevel::Medium, LodLevel::Low, LodLevel::VeryLow][i]) {
+        if distance < threshold
+            && d.lods.iter().any(|l| {
+                l.level
+                    == [
+                        LodLevel::High,
+                        LodLevel::Medium,
+                        LodLevel::Low,
+                        LodLevel::VeryLow,
+                    ][i]
+            })
+        {
             return Some(i as u8);
         }
     }
     // Beyond every threshold: the coarsest level that exists, if the entity itself is still in range.
-    d.lods.iter().map(|l| match l.level {
-        LodLevel::High => 0,
-        LodLevel::Medium => 1,
-        LodLevel::Low => 2,
-        LodLevel::VeryLow => 3,
-    }).max()
+    d.lods
+        .iter()
+        .map(|l| match l.level {
+            LodLevel::High => 0,
+            LodLevel::Medium => 1,
+            LodLevel::Low => 2,
+            LodLevel::VeryLow => 3,
+        })
+        .max()
 }
 
 struct Draw {
@@ -302,7 +426,16 @@ fn pass_of(bucket: u8) -> Pass {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn render_world(dev: &Device, fs: &GameFs, shaders: &mut ShaderCache, db: &ArchetypeDb, txd_parents: &TxdParents, instances: &[Instance], cam: &Camera, opts: &WorldViewOptions) -> Result<(Vec<u8>, WorldReport)> {
+pub fn render_world(
+    dev: &Device,
+    fs: &GameFs,
+    shaders: &mut ShaderCache,
+    db: &ArchetypeDb,
+    txd_parents: &TxdParents,
+    instances: &[Instance],
+    cam: &Camera,
+    opts: &WorldViewOptions,
+) -> Result<(Vec<u8>, WorldReport)> {
     // Linear HDR colour, as the game's shaders emit it; tonemapped on read-back.
     let rt = dev.create_render_target(opts.width, opts.height, DXGI_FORMAT_R16G16B16A16_FLOAT)?;
     let depth = dev.create_depth_target(opts.width, opts.height)?;
@@ -327,7 +460,10 @@ pub fn render_world(dev: &Device, fs: &GameFs, shaders: &mut ShaderCache, db: &A
         ytds: HashMap::new(),
         models: HashMap::new(),
         lighting: opts.lighting,
-        report: WorldReport { instances_in: instances.len(), ..Default::default() },
+        report: WorldReport {
+            instances_in: instances.len(),
+            ..Default::default()
+        },
     };
 
     let view = cam.view();
@@ -335,15 +471,27 @@ pub fn render_world(dev: &Device, fs: &GameFs, shaders: &mut ShaderCache, db: &A
     let frustum = Frustum::from_clip(proj * view);
 
     // Debug: `VESPUCCI_SKIP=a,b` leaves out models whose file name contains any of these.
-    let skip: Vec<String> = std::env::var("VESPUCCI_SKIP").map(|s| s.split(',').map(|x| x.trim().to_lowercase()).filter(|x| !x.is_empty()).collect()).unwrap_or_default();
+    let skip: Vec<String> = std::env::var("VESPUCCI_SKIP")
+        .map(|s| {
+            s.split(',')
+                .map(|x| x.trim().to_lowercase())
+                .filter(|x| !x.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
 
     // Decide what to draw: frustum-cull by the archetype's box, load models within budget.
     let mut draws: Vec<Draw> = Vec::new();
     for inst in instances {
-        let Some(a) = db.get(inst.archetype) else { continue };
+        let Some(a) = db.get(inst.archetype) else {
+            continue;
+        };
         if !skip.is_empty() {
             let (ext, hash) = a.model_file();
-            if fs.by_hash(ext, hash).is_some_and(|l| skip.iter().any(|s| l.name.to_lowercase().contains(s))) {
+            if fs
+                .by_hash(ext, hash)
+                .is_some_and(|l| skip.iter().any(|s| l.name.to_lowercase().contains(s)))
+            {
                 continue;
             }
         }
@@ -351,7 +499,13 @@ pub fn render_world(dev: &Device, fs: &GameFs, shaders: &mut ShaderCache, db: &A
         let scale = inst.scale_xy.max(inst.scale_z);
         let world = Mat4::from_scale_rotation_translation(
             Vec3::new(inst.scale_xy, inst.scale_xy, inst.scale_z),
-            Quat::from_xyzw(inst.orientation[0], inst.orientation[1], inst.orientation[2], inst.orientation[3]).normalize(),
+            Quat::from_xyzw(
+                inst.orientation[0],
+                inst.orientation[1],
+                inst.orientation[2],
+                inst.orientation[3],
+            )
+            .normalize(),
             Vec3::new(inst.position.x, inst.position.y, inst.position.z),
         );
         let centre = world.transform_point3(Vec3::new(c.x, c.y, c.z));
@@ -367,8 +521,16 @@ pub fn render_world(dev: &Device, fs: &GameFs, shaders: &mut ShaderCache, db: &A
             ctx.report.budget_hit = true;
             break;
         }
-        let mip_skip = if inst.distance < 100.0 { opts.mip_skip[0] } else if inst.distance < 500.0 { opts.mip_skip[1] } else { opts.mip_skip[2] };
-        let Some(model) = ctx.model(inst.archetype, mip_skip) else { continue };
+        let mip_skip = if inst.distance < 100.0 {
+            opts.mip_skip[0]
+        } else if inst.distance < 500.0 {
+            opts.mip_skip[1]
+        } else {
+            opts.mip_skip[2]
+        };
+        let Some(model) = ctx.model(inst.archetype, mip_skip) else {
+            continue;
+        };
         let level = { pick_lod(&model.borrow().drawable, inst.distance) };
         let Some(level) = level else { continue };
         let lod = match ctx.lod(&model, level) {
@@ -380,11 +542,23 @@ pub fn render_world(dev: &Device, fs: &GameFs, shaders: &mut ShaderCache, db: &A
         };
         if log::log_enabled!(log::Level::Trace) {
             let (ext, hash) = a.model_file();
-            let name = fs.by_hash(ext, hash).map(|l| l.name.clone()).unwrap_or_default();
-            let size = Vec3::new(a.bb_max.x - a.bb_min.x, a.bb_max.y - a.bb_min.y, a.bb_max.z - a.bb_min.z);
+            let name = fs
+                .by_hash(ext, hash)
+                .map(|l| l.name.clone())
+                .unwrap_or_default();
+            let size = Vec3::new(
+                a.bb_max.x - a.bb_min.x,
+                a.bb_max.y - a.bb_min.y,
+                a.bb_max.z - a.bb_min.z,
+            );
             log::trace!("draw {name} d={:.0} lod={:?} lodDist={:.0} size={:.0}x{:.0}x{:.0} level={level} ymap={:#010x} eflags={:#010x} aflags={:#010x} time={:?}", inst.distance, inst.lod_level, inst.lod_dist, size.x, size.y, size.z, inst.ymap, inst.flags, a.flags, a.time_flags.map(|t| format!("{t:#010x}")));
         }
-        draws.push(Draw { model, lod, world, distance: inst.distance });
+        draws.push(Draw {
+            model,
+            lod,
+            world,
+            distance: inst.distance,
+        });
     }
     ctx.report.texture_bytes = ctx.textures.uploaded_bytes;
 
@@ -394,7 +568,9 @@ pub fn render_world(dev: &Device, fs: &GameFs, shaders: &mut ShaderCache, db: &A
     for (di, d) in draws.iter().enumerate() {
         let model = d.model.borrow();
         for (gi, g) in d.lod.geos.iter().enumerate() {
-            let Some(material) = model.materials[g.material].as_ref() else { continue };
+            let Some(material) = model.materials[g.material].as_ref() else {
+                continue;
+            };
             let pass = pass_of(material.bucket);
             let key = match pass {
                 Pass::Alpha => (u32::MAX - d.distance.to_bits()) as u64,
@@ -405,9 +581,20 @@ pub fn render_world(dev: &Device, fs: &GameFs, shaders: &mut ShaderCache, db: &A
     }
     items.sort_unstable();
 
-    globals_preview::apply(&mut ctx.globals, cam, opts.width, opts.height, opts.sun_sign, false);
+    globals_preview::apply(
+        &mut ctx.globals,
+        cam,
+        opts.width,
+        opts.height,
+        opts.sun_sign,
+        false,
+    );
     ctx.globals.upload_all(dev)?;
-    let dummy = dev.create_buffer(&[0u8; DUMMY_BYTES], D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_IMMUTABLE)?;
+    let dummy = dev.create_buffer(
+        &[0u8; DUMMY_BYTES],
+        D3D11_BIND_VERTEX_BUFFER,
+        D3D11_USAGE_IMMUTABLE,
+    )?;
     dev.clear(&rt, opts.background);
     dev.clear_depth_to(&depth, 0.0);
     dev.bind_targets(&rt, Some(&depth));
@@ -441,7 +628,9 @@ pub fn render_world(dev: &Device, fs: &GameFs, shaders: &mut ShaderCache, db: &A
         }
         let mut model = d.model.borrow_mut();
         let g = &d.lod.geos[gi];
-        let Some(material) = model.materials[g.material].as_mut() else { continue };
+        let Some(material) = model.materials[g.material].as_mut() else {
+            continue;
+        };
         dev.set_pipeline(&g.layout, &material.vs.shader, &material.ps.shader);
         material.bind(dev, &mut ctx.globals, &sampler, &comparison)?;
         dev.set_vertex_buffer(0, &g.vb, g.stride);
@@ -452,10 +641,22 @@ pub fn render_world(dev: &Device, fs: &GameFs, shaders: &mut ShaderCache, db: &A
     let hdr = dev.read_back(&rt.texture, 8)?;
     // Debug: VESPUCCI_PROBE=x,y prints the linear HDR value of one pixel.
     if let Ok(p) = std::env::var("VESPUCCI_PROBE") {
-        if let Some((x, y)) = p.split_once(',').and_then(|(a, b)| Some((a.trim().parse::<usize>().ok()?, b.trim().parse::<usize>().ok()?))) {
+        if let Some((x, y)) = p.split_once(',').and_then(|(a, b)| {
+            Some((
+                a.trim().parse::<usize>().ok()?,
+                b.trim().parse::<usize>().ok()?,
+            ))
+        }) {
             let at = (y * opts.width as usize + x) * 8;
             if at + 8 <= hdr.len() {
-                let v: Vec<f32> = (0..4).map(|i| crate::tonemap::half_to_f32(u16::from_le_bytes([hdr[at + i * 2], hdr[at + i * 2 + 1]]))).collect();
+                let v: Vec<f32> = (0..4)
+                    .map(|i| {
+                        crate::tonemap::half_to_f32(u16::from_le_bytes([
+                            hdr[at + i * 2],
+                            hdr[at + i * 2 + 1],
+                        ]))
+                    })
+                    .collect();
                 log::info!("probe ({x},{y}) hdr = {v:?}");
             }
         }

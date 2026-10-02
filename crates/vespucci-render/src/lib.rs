@@ -1,9 +1,9 @@
 //! Drawing the game's models with the game's own shaders.
 
 pub mod camera;
+pub mod cbuffer;
 pub mod frustum;
 pub mod globals_preview;
-pub mod cbuffer;
 pub mod layout;
 pub mod material;
 pub mod model_view;

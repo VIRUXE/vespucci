@@ -46,7 +46,10 @@ fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
         let path = entry?.path();
         if path.is_dir() {
             walk_dir(&path, out)?;
-        } else if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("rpf")) {
+        } else if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("rpf"))
+        {
             out.push(path);
         }
     }
@@ -94,23 +97,37 @@ fn dlc_load_order(game_root: &Path, keys: Option<&GtaKeys>) -> HashMap<String, u
     let archive = match Archive::open(&update_rpf, keys) {
         Ok(a) => a,
         Err(err) => {
-            log::debug!("no DLC load order ({} unreadable: {err})", update_rpf.display());
+            log::debug!(
+                "no DLC load order ({} unreadable: {err})",
+                update_rpf.display()
+            );
             return HashMap::new();
         }
     };
     if archive.require_keys(keys).is_err() {
         return HashMap::new();
     }
-    let names = match archive.find_file("common/data/dlclist.xml").and_then(|f| archive.extract(f, keys).ok()) {
+    let names = match archive
+        .find_file("common/data/dlclist.xml")
+        .and_then(|f| archive.extract(f, keys).ok())
+    {
         Some(data) => parse_dlc_list(&data).unwrap_or_default(),
         None => return HashMap::new(),
     };
     let mut packs: Vec<(String, i32)> = Vec::with_capacity(names.len());
     for name in names {
-        let dlc_rpf = game_root.join("update").join("x64").join("dlcpacks").join(&name).join("dlc.rpf");
+        let dlc_rpf = game_root
+            .join("update")
+            .join("x64")
+            .join("dlcpacks")
+            .join(&name)
+            .join("dlc.rpf");
         let order = Archive::open(&dlc_rpf, keys)
             .ok()
-            .and_then(|pack| pack.find_file("setup2.xml").and_then(|f| pack.extract(f, keys).ok()))
+            .and_then(|pack| {
+                pack.find_file("setup2.xml")
+                    .and_then(|f| pack.extract(f, keys).ok())
+            })
             .and_then(|data| parse_dlc_setup_order(&data).ok())
             .unwrap_or(-1);
         packs.push((name, order));
@@ -122,5 +139,9 @@ fn dlc_load_order(game_root: &Path, keys: Option<&GtaKeys>) -> HashMap<String, u
 /// mirroring CodeWalker's `DlcSetupFiles.OrderBy(o => o.order)`.
 fn rank_dlc_packs(mut packs: Vec<(String, i32)>) -> HashMap<String, u32> {
     packs.sort_by_key(|(_, order)| *order);
-    packs.into_iter().enumerate().map(|(rank, (name, _))| (name, rank as u32)).collect()
+    packs
+        .into_iter()
+        .enumerate()
+        .map(|(rank, (name, _))| (name, rank as u32))
+        .collect()
 }

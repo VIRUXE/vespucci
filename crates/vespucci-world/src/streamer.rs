@@ -96,33 +96,75 @@ fn wanted_variant(hour: u8, available: &[&str]) -> &'static str {
     }
 }
 
-pub fn collect(fs: &GameFs, tree: &YmapTree, db: &ArchetypeDb, camera: Vec3, opts: StreamOptions) -> Result<(Vec<Instance>, StreamStats)> {
+pub fn collect(
+    fs: &GameFs,
+    tree: &YmapTree,
+    db: &ArchetypeDb,
+    camera: Vec3,
+    opts: StreamOptions,
+) -> Result<(Vec<Instance>, StreamStats)> {
     let maps = tree.touching(camera, opts.radius);
     // Time-of-day map variants: which suffixes exist per base name.
-    let stem_of = |file: u32| -> String { fs.files[file as usize].name.trim_end_matches(".ymap").to_lowercase() };
-    let mut variants: std::collections::HashMap<String, Vec<&'static str>> = std::collections::HashMap::new();
+    let stem_of = |file: u32| -> String {
+        fs.files[file as usize]
+            .name
+            .trim_end_matches(".ymap")
+            .to_lowercase()
+    };
+    let mut variants: std::collections::HashMap<String, Vec<&'static str>> =
+        std::collections::HashMap::new();
     for m in &maps {
         let stem = stem_of(m.file);
         if let Some((base, v)) = time_variant(&stem) {
             let key = format!("{base}{}", if stem.ends_with("_lod") { "_lod" } else { "" });
-            let v: &'static str = ["morning", "day", "evening", "night"].into_iter().find(|x| *x == v).unwrap();
+            let v: &'static str = ["morning", "day", "evening", "night"]
+                .into_iter()
+                .find(|x| *x == v)
+                .unwrap();
             variants.entry(key).or_default().push(v);
         }
     }
-    let parsed: Vec<(u32, Result<crate::entities::YmapEntities>)> = maps.par_iter().map(|m| (m.file, fs.read(&fs.files[m.file as usize]).and_then(|d| parse_entities(&d)))).collect();
-    let mut stats = StreamStats { ymaps_touched: maps.len(), ..Default::default() };
+    let parsed: Vec<(u32, Result<crate::entities::YmapEntities>)> = maps
+        .par_iter()
+        .map(|m| {
+            (
+                m.file,
+                fs.read(&fs.files[m.file as usize])
+                    .and_then(|d| parse_entities(&d)),
+            )
+        })
+        .collect();
+    let mut stats = StreamStats {
+        ymaps_touched: maps.len(),
+        ..Default::default()
+    };
+    let trace_filter = std::env::var("VESPUCCI_TRACE_ENTITY")
+        .ok()
+        .map(|s| s.to_lowercase());
     let mut out = Vec::new();
     for (file, r) in parsed {
         let ents = match r {
             Ok(p) => {
-                log::debug!("ymap {} flags={:#x} content={:#x} entities={}", fs.files[file as usize].name, p.flags, p.content_flags, p.entities.len());
+                log::debug!(
+                    "ymap {} flags={:#x} content={:#x} entities={}",
+                    fs.files[file as usize].name,
+                    p.flags,
+                    p.content_flags,
+                    p.entities.len()
+                );
                 if p.flags & 1 != 0 && !opts.include_script_maps {
                     // Script-requested map: only the time-of-day variants are predictable.
                     let stem = stem_of(file);
                     let keep = match (time_variant(&stem), opts.hour) {
                         (Some((base, v)), Some(h)) => {
-                            let key = format!("{base}{}", if stem.ends_with("_lod") { "_lod" } else { "" });
-                            wanted_variant(h, variants.get(&key).map(|v| v.as_slice()).unwrap_or(&[])) == v
+                            let key = format!(
+                                "{base}{}",
+                                if stem.ends_with("_lod") { "_lod" } else { "" }
+                            );
+                            wanted_variant(
+                                h,
+                                variants.get(&key).map(|v| v.as_slice()).unwrap_or(&[]),
+                            ) == v
                         }
                         _ => false,
                     };
@@ -146,6 +188,21 @@ pub fn collect(fs: &GameFs, tree: &YmapTree, db: &ArchetypeDb, camera: Vec3, opt
                 continue;
             }
             let d = dist(e.position, camera);
+            // Debug: VESPUCCI_TRACE_ENTITY=substring logs the LOD decision of matching entities.
+            if let Some(filter) = trace_filter.as_deref() {
+                let name = db
+                    .get(e.archetype_hash)
+                    .map(|a| {
+                        let (ext, h) = a.model_file();
+                        fs.by_hash(ext, h)
+                            .map(|l| l.name.clone())
+                            .unwrap_or_else(|| format!("{h:#010x}.{ext}"))
+                    })
+                    .unwrap_or_default();
+                if name.to_lowercase().contains(filter) {
+                    log::info!("entity {name} ymap {} d={d:.0} lodDist={:.0} childLodDist={:.0} children={} level={:?} parent={} pos=({:.0},{:.0},{:.0}) -> {}", fs.files[file as usize].name, e.lod_dist, e.child_lod_dist, e.num_children, e.lod_level, e.parent_index, e.position.x, e.position.y, e.position.z, visible(e, d, opts.lod_scale).1);
+                }
+            }
             match visible(e, d, opts.lod_scale) {
                 (false, "beyond") => {
                     stats.beyond_lod_dist += 1;
@@ -183,7 +240,11 @@ pub fn collect(fs: &GameFs, tree: &YmapTree, db: &ArchetypeDb, camera: Vec3, opt
         }
     }
     stats.instances = out.len();
-    out.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap_or(std::cmp::Ordering::Equal));
+    out.sort_by(|a, b| {
+        a.distance
+            .partial_cmp(&b.distance)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     Ok((out, stats))
 }
 

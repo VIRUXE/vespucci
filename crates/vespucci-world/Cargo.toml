@@ -3,6 +3,10 @@ name = "vespucci-world"
 description = "The game world as data: archetype database, ymap tree, entities with LOD links, streaming by camera"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
 license.workspace = true
 
 [dependencies]

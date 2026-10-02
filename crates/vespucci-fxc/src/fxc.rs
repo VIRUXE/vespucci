@@ -145,7 +145,10 @@ impl FxcFile {
             .map(|_| {
                 let name = r.string()?;
                 let _zero = r.u8()?;
-                Ok(Preset { name, value: r.u32()? })
+                Ok(Preset {
+                    name,
+                    value: r.u32()?,
+                })
             })
             .collect::<Result<Vec<_>>>()?;
 
@@ -163,10 +166,18 @@ impl FxcFile {
             }
         }
 
-        let cbuffers = (0..r.u8()?).map(|_| read_cbuffer(&mut r)).collect::<Result<Vec<_>>>()?;
-        let variables = (0..r.u8()?).map(|_| read_variable(&mut r)).collect::<Result<Vec<_>>>()?;
-        let cbuffers2 = (0..r.u8()?).map(|_| read_cbuffer(&mut r)).collect::<Result<Vec<_>>>()?;
-        let resources = (0..r.u8()?).map(|_| read_variable(&mut r)).collect::<Result<Vec<_>>>()?;
+        let cbuffers = (0..r.u8()?)
+            .map(|_| read_cbuffer(&mut r))
+            .collect::<Result<Vec<_>>>()?;
+        let variables = (0..r.u8()?)
+            .map(|_| read_variable(&mut r))
+            .collect::<Result<Vec<_>>>()?;
+        let cbuffers2 = (0..r.u8()?)
+            .map(|_| read_cbuffer(&mut r))
+            .collect::<Result<Vec<_>>>()?;
+        let resources = (0..r.u8()?)
+            .map(|_| read_variable(&mut r))
+            .collect::<Result<Vec<_>>>()?;
 
         let techniques = (0..r.u8()?)
             .map(|_| {
@@ -177,7 +188,9 @@ impl FxcFile {
                         for s in &mut stage {
                             *s = r.u8()?;
                         }
-                        let params = (0..r.u8()?).map(|_| Ok((r.u32()?, r.u32()?))).collect::<Result<Vec<_>>>()?;
+                        let params = (0..r.u8()?)
+                            .map(|_| Ok((r.u32()?, r.u32()?)))
+                            .collect::<Result<Vec<_>>>()?;
                         Ok(Pass { stage, params })
                     })
                     .collect::<Result<Vec<_>>>()?;
@@ -185,7 +198,16 @@ impl FxcFile {
             })
             .collect::<Result<Vec<_>>>()?;
 
-        Ok(FxcFile { vertex_type, presets, groups, cbuffers, variables, cbuffers2, resources, techniques })
+        Ok(FxcFile {
+            vertex_type,
+            presets,
+            groups,
+            cbuffers,
+            variables,
+            cbuffers2,
+            resources,
+            techniques,
+        })
     }
 
     pub fn technique(&self, name: &str) -> Option<&Technique> {
@@ -202,7 +224,10 @@ impl FxcFile {
     }
 
     pub fn cbuffer_by_hash(&self, hash: u32) -> Option<&CBuffer> {
-        self.cbuffers.iter().chain(&self.cbuffers2).find(|c| c.name_hash == hash)
+        self.cbuffers
+            .iter()
+            .chain(&self.cbuffers2)
+            .find(|c| c.name_hash == hash)
     }
 }
 
@@ -212,8 +237,12 @@ fn read_shader(r: &mut Reader, group: usize) -> Result<Shader> {
         // Geometry shaders carry an empty name before the real one.
         name = r.string()?;
     }
-    let variables = (0..r.u8()?).map(|_| r.string()).collect::<Result<Vec<_>>>()?;
-    let buffers = (0..r.u8()?).map(|_| Ok((r.string()?, r.u16()?))).collect::<Result<Vec<_>>>()?;
+    let variables = (0..r.u8()?)
+        .map(|_| r.string())
+        .collect::<Result<Vec<_>>>()?;
+    let buffers = (0..r.u8()?)
+        .map(|_| Ok((r.string()?, r.u16()?)))
+        .collect::<Result<Vec<_>>>()?;
     if group == 4 {
         let _gs_extra = r.u8()?;
     }
@@ -222,13 +251,22 @@ fn read_shader(r: &mut Reader, group: usize) -> Result<Shader> {
     let mut version = None;
     if len > 0 {
         let blob = r.bytes(len)?;
-        ensure!(blob.len() >= 4 && &blob[..4] == b"DXBC", "shader {name}: bytecode does not start with DXBC");
+        ensure!(
+            blob.len() >= 4 && &blob[..4] == b"DXBC",
+            "shader {name}: bytecode does not start with DXBC"
+        );
         dxbc = blob.to_vec();
         if matches!(group, 0 | 1 | 4) {
             version = Some((r.u8()?, r.u8()?));
         }
     }
-    Ok(Shader { name, variables, buffers, dxbc, version })
+    Ok(Shader {
+        name,
+        variables,
+        buffers,
+        dxbc,
+        version,
+    })
 }
 
 fn read_cbuffer(r: &mut Reader) -> Result<CBuffer> {
@@ -239,7 +277,12 @@ fn read_cbuffer(r: &mut Reader) -> Result<CBuffer> {
     }
     let name = r.string()?;
     let name_hash = rpf_archive::rage_joaat(&name.to_lowercase());
-    Ok(CBuffer { name, name_hash, size, slots })
+    Ok(CBuffer {
+        name,
+        name_hash,
+        size,
+        slots,
+    })
 }
 
 fn read_variable(r: &mut Reader) -> Result<Variable> {
@@ -266,7 +309,19 @@ fn read_variable(r: &mut Reader) -> Result<Variable> {
         })
         .collect::<Result<Vec<_>>>()?;
     let values = (0..r.u8()?).map(|_| r.u32()).collect::<Result<Vec<_>>>()?;
-    Ok(Variable { ty, count, slot, group, name, param_name, offset, variant, cbuffer_hash, params, values })
+    Ok(Variable {
+        ty,
+        count,
+        slot,
+        group,
+        name,
+        param_name,
+        offset,
+        variant,
+        cbuffer_hash,
+        params,
+        values,
+    })
 }
 
 struct Reader<'a> {
@@ -276,7 +331,10 @@ struct Reader<'a> {
 
 impl<'a> Reader<'a> {
     fn bytes(&mut self, n: usize) -> Result<&'a [u8]> {
-        let s = self.data.get(self.pos..self.pos + n).with_context(|| format!("fxc truncated at {} (+{n})", self.pos))?;
+        let s = self
+            .data
+            .get(self.pos..self.pos + n)
+            .with_context(|| format!("fxc truncated at {} (+{n})", self.pos))?;
         self.pos += n;
         Ok(s)
     }

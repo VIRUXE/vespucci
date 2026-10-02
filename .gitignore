@@ -3,4 +3,5 @@ captures/
 tests/out/
 *.png
 !tests/golden/*.png
+!docs/images/*.png
 *.log

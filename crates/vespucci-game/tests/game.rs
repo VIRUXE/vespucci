@@ -30,15 +30,27 @@ fn whole_install_scans() {
     assert!(!first.contains("update/"), "{first}");
     assert!(last.contains("dlcpacks/"), "{last}");
 
-    let shaders: Vec<_> = fs.files.iter().filter(|f| f.ext == "fxc" && f.archive == 0).collect();
-    assert!(shaders.len() >= 300, "fxc in first archive: {}", shaders.len());
+    let shaders: Vec<_> = fs
+        .files
+        .iter()
+        .filter(|f| f.ext == "fxc" && f.archive == 0)
+        .collect();
+    assert!(
+        shaders.len() >= 300,
+        "fxc in first archive: {}",
+        shaders.len()
+    );
 
-    let dlclist = fs.get("update/update.rpf/common/data/dlclist.xml").expect("dlclist.xml");
+    let dlclist = fs
+        .get("update/update.rpf/common/data/dlclist.xml")
+        .expect("dlclist.xml");
     let xml = String::from_utf8(fs.read(dlclist).unwrap()).unwrap();
     assert!(xml.matches("<Item>").count() >= 90);
 
     // Name resolution goes through nested archives.
-    let bag = fs.by_name("ydr", "prop_cs_heist_bag_01").expect("heist bag");
+    let bag = fs
+        .by_name("ydr", "prop_cs_heist_bag_01")
+        .expect("heist bag");
     assert_eq!(bag.nested.len(), 1);
     let bytes = fs.read(bag).unwrap();
     assert_eq!(&bytes[..4], b"RSC7");
