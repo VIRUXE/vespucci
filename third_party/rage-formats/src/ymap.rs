@@ -33,6 +33,8 @@ pub struct YmapEntity {
     pub lod_dist: f32,
     /// True for a `CMloInstanceDef` (an interior placement).
     pub is_mlo_instance: bool,
+    /// `tintValue`: the palette row `_tnt` materials use (Vespucci addition).
+    pub tint: u32,
 }
 
 impl YmapEntity {
@@ -245,6 +247,7 @@ pub(crate) fn read_entity(e: &[u8], is_mlo_instance: bool) -> YmapEntity {
         parent_index: u32_le(e, 72) as i32,
         lod_dist: f32_le(e, 76),
         is_mlo_instance,
+        tint: u32_le(e, 120),
     }
 }
 
@@ -354,7 +357,7 @@ pub mod tests {
         let h = std::f32::consts::FRAC_1_SQRT_2;
         let e = YmapEntity {
             archetype_hash: 0, flags: 0, guid: 0, position: Vec3::new(10.0, 20.0, 30.0),
-            rotation: [0.0, 0.0, h, h], scale_xy: 1.0, scale_z: 1.0, parent_index: -1, lod_dist: 0.0, is_mlo_instance: true,
+            rotation: [0.0, 0.0, h, h], scale_xy: 1.0, scale_z: 1.0, parent_index: -1, lod_dist: 0.0, is_mlo_instance: true, tint: 0,
         };
         // Stored quaternion is the inverse, so a +90° store rotates -90°.
         let p = e.to_world(Vec3::new(1.0, 0.0, 0.0));

@@ -3,6 +3,8 @@
 
 use std::path::PathBuf;
 use vespucci_game::GameFs;
+use vespucci_world::entities::stored_rotation_to_world;
+use vespucci_world::streamer::interior_world;
 use vespucci_world::{parse_entities, ArchetypeDb, LodLevel, MapSet, Mode, Vec3, YmapTree};
 
 fn fs() -> Option<GameFs> {
@@ -71,6 +73,52 @@ fn beach_entities_have_lod_fields() {
         .entities
         .iter()
         .all(|e| e.scale_xy > 0.0 && e.scale_z > 0.0));
+}
+
+/// Interiors (#19): the Ammu-Nation at Pillbox Hill has a definition with
+/// entities, rooms and portals, and its placement puts those entities next to
+/// the instance.
+#[test]
+fn interiors_are_defined_and_placed() {
+    let Some(fs) = fs() else { return };
+    let db = ArchetypeDb::build(&fs).unwrap();
+    // 391 interiors in build 1.0.3889.0, one definition per MLO archetype.
+    assert!(
+        db.mlos.len() > 300,
+        "interior definitions: {}",
+        db.mlos.len()
+    );
+    let mlo_archetypes = db.by_hash.values().filter(|a| a.is_mlo).count();
+    assert_eq!(db.mlos.len(), mlo_archetypes);
+    let gun = db
+        .mlo(vespucci_game::joaat("v_gun"))
+        .expect("v_gun interior definition");
+    assert!(gun.entities.len() > 100, "{}", gun.entities.len());
+    assert!(gun.rooms.len() >= 2 && gun.portals.len() >= 1);
+    assert!(gun.rooms.iter().any(|r| !r.attached_objects.is_empty()));
+
+    let tree = YmapTree::build(&fs, &MapSet::all(&fs)).unwrap();
+    let node = tree
+        .get(vespucci_game::joaat("dt1_22_interior_v_gun_milo_"))
+        .expect("dt1_22_interior_v_gun_milo_.ymap");
+    let parsed = parse_entities(&fs.read(&fs.files[node.file as usize]).unwrap()).unwrap();
+    let inst = &parsed.entities[0];
+    assert!(inst.is_mlo_instance && inst.archetype_hash == gun.name_hash);
+    // Every interior entity lands within the interior's own size of the instance.
+    for ie in &gun.entities {
+        let (p, _) = interior_world(
+            inst.position,
+            inst.orientation(),
+            ie.position,
+            stored_rotation_to_world(ie.rotation),
+        );
+        let d = ((p.x - inst.position.x).powi(2) + (p.y - inst.position.y).powi(2)).sqrt();
+        assert!(
+            d < 60.0,
+            "entity {:#010x} {d:.0} m from the instance",
+            ie.archetype_hash
+        );
+    }
 }
 
 #[test]

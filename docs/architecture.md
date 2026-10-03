@@ -50,12 +50,12 @@ GTA V ships its shaders compiled: each `.fxc` ("rgxe") container holds, per shad
 
 ### `vespucci-world` — the map as data
 
-- `archetypes.rs`: `ArchetypeDb` from every `.ytyp` in the game (159k archetypes): bounding box, LOD distance, texture dictionary, drawable dictionary, asset type, flags, time flags.
+- `archetypes.rs`: `ArchetypeDb` from every `.ytyp` in the game (159k archetypes): bounding box, LOD distance, texture dictionary, drawable dictionary, asset type, flags, time flags; plus every interior definition (`MloDef`: entities, rooms, portals, entity sets) by name.
 - `ymaps.rs`: `YmapTree`, one node per `.ymap` with its streaming and entity extents, read from the game's `*_cache_y.dat` files (with a header-parse fallback), and `touching(centre, radius)`.
 - `mapset.rs`: which `.ymap`/`.ytyp` files are part of story mode versus GTA Online, evaluated from every DLC pack's `content.xml` change sets in two phases (start-up groups for all packs, then the map group), mirroring how the game enables and disables archives.
 - `entities.rs`: `CEntityDef` records (position, rotation — stored conjugated for non-interior entities — scale, LOD distance, child LOD distance, LOD level, number of children, parent index, tint, flags) and car generators, plus the `CMapData` flags.
 - `txd.rs`: the `gtxd.ymt` texture-dictionary parent chain.
-- `streamer.rs`: `collect()` turns a camera position into the list of `Instance`s to draw: maps touching the radius, parsed in parallel; script-only maps skipped except for time-of-day variants; the LOD rule; time-archetype hour bits; sorted by distance.
+- `streamer.rs`: `collect()` turns a camera position into the list of `Instance`s to draw: maps touching the radius, parsed in parallel; script-only maps skipped except for time-of-day variants; the LOD rule; interior placements expanded into the definition's entities and default entity sets (`interior_world`); time-archetype hour bits; sorted by distance.
 
 ### `vespucci-render` — the game's models through the game's shaders
 

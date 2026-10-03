@@ -41,7 +41,7 @@ Both are Meta-format (`PRD0`/`PSO`) resources holding `CMapData` / `CMapTypes` s
 
 `CEntityDef` (128 bytes): archetype name hash, flags, position, rotation quaternion (stored **conjugated** for everything except interior-instance entities), scale XY/Z, parent index, LOD distance, child LOD distance, LOD level (HD, LOD, SLOD1…SLOD4, ORPHANHD), number of children, tint, and more.
 
-`CBaseArchetypeDef` (144 bytes): LOD distance, flags, bounding box and sphere, texture dictionary, drawable dictionary, asset type (drawable, fragment, drawable-dictionary entry, assetless) and asset name. `CTimeArchetypeDef` adds `timeFlags`, one bit per hour of the day. `CMloArchetypeDef` describes interiors (rooms, portals, entity sets); interiors are not rendered yet.
+`CBaseArchetypeDef` (144 bytes): LOD distance, flags, bounding box and sphere, texture dictionary, drawable dictionary, asset type (drawable, fragment, drawable-dictionary entry, assetless) and asset name. `CTimeArchetypeDef` adds `timeFlags`, one bit per hour of the day. `CMloArchetypeDef` describes an interior: its own entities (`CEntityDef`s placed relative to the MLO origin), rooms (name, box, the indices of the entities each owns), portals (quads in MLO-local space joining two rooms; room 0 is the outside) and entity sets, named groups of extra entities a placement switches on. A `CMloInstanceDef` places one: the 128-byte `CEntityDef` plus `groupId`, `floorId`, `defaultEntitySets` (the set names enabled here), `numExitPortals` and flags. See "Interiors" below.
 
 ## The LOD system
 
@@ -54,7 +54,24 @@ descend(e):    all of e's children are loaded (and drawable)
 otherwise:     e is a leaf and is drawn — even when it is a handed-over child beyond its own lodDist
 ```
 
-So an HD building shows while its LOD parent is within `childLodDist` (or the building is within its own `lodDist`), and the parent takes over beyond that; a parent whose children are not all loaded keeps drawing itself, which is what the game does while a child map is not streamed. Children Vespucci cannot draw yet (interior instances, entities without an archetype) count as not loaded, so the LOD shell of a building with an interior stays until interiors render. Orphan HD entities simply obey their own distance.
+So an HD building shows while its LOD parent is within `childLodDist` (or the building is within its own `lodDist`), and the parent takes over beyond that; a parent whose children are not all loaded keeps drawing itself, which is what the game does while a child map is not streamed. Children Vespucci cannot draw (entities without an archetype, interior placements under `--no-interiors`) count as not loaded, so such a parent keeps its LOD shell. Orphan HD entities simply obey their own distance. An interior placement is an ordinary child in this tree: its LOD parent typically has `childLodDist` 0 and hands over once the camera is within the placement's own `lodDist`.
+
+## Interiors (MLO)
+
+An interior placement (`CMloInstanceDef`) names a `CMloArchetypeDef` and is drawn as that definition's entities plus the entities of every entity set listed in the placement's `defaultEntitySets`. Each is moved into world space by the instance transform, the way CodeWalker's `MloInstanceData::UpdateEntity` does it:
+
+```
+world position = instance position + rotate(instance rotation, local position)
+world rotation = instance rotation ⊗ local rotation        (local first, then the instance)
+```
+
+where the instance rotation is the placement's quaternion **as stored** (interior placements, unlike every other entity, do not store the inverse) and the local rotation is the conjugate of the definition entity's stored quaternion (those do store the inverse, like map entities). Verified by rendering from inside the Pillbox Hill Ammu-Nation (`v_gun`): shelves, counters and wall text come out where they belong and the right way round.
+
+Every entity of a drawn interior is drawn, whatever room the camera is in and whatever the entity's own `lodDist` says (CodeWalker's rule), except proxies. The game additionally hides rooms behind closed portals and culls interior entities by their own distance; neither is done yet. Rooms and portals are parsed (`rage-formats` `MloDef`) and available for that work.
+
+## Proxies
+
+Some entities exist only to feed the shadow map or the reflection map and are never drawn into the frame: shadow proxies, marked by archetype `flags` bit 11 (2048), and reflection proxies, which CodeWalker recognises by exact `CEntityDef::flags` values (135790592, 135790593, 672661504, 536870912, 35127296, 39321602: golf-course and house water proxies, tree and tunnel reflection proxies, mirror-only emissives, interior reflection shells such as `v_7_gc_reflectproxy`). `streamer::is_proxy` leaves both out, for map and interior entities alike (`StreamStats::proxies_skipped`). The 6.7 km `*_reflproxy` boxes of the exterior are script-requested maps and are skipped as such.
 
 Which maps are loaded: every ymap whose entity extents touch `--radius` around the camera, every ymap whose **streaming extents** contain the camera (the game's own rule — those extents are the entity extents grown by the entities' lodDists), all of their ancestor maps (the parents live there), and, for a loaded parent within its `childLodDist` that still misses children, the child maps of its map. `StreamStats` counts each group. The streamer then culls by the archetype's bounding sphere against the view frustum and picks the drawable's own LOD level from its `lod_distances`.
 
@@ -70,4 +87,4 @@ See [binding.md](binding.md) for the verified binding rules. In short: an `.fxc`
 
 ## Not handled yet
 
-Interiors (MLO) and their portals, vehicles beyond their main drawable (no skeleton/bone matrices, no `carcols`), car generators (parsed, not drawn), water (`water.xml`), time cycle / weather (`timecycle_*.xml`, `visualsettings.dat`), LOD lights, occluders, navmesh/paths, scripted IPL toggles other than the time-of-day heuristic.
+Interior rooms and portals as culling (every entity of a drawn interior is drawn), vehicles beyond their main drawable (no skeleton/bone matrices, no `carcols`), car generators (parsed, not drawn), water (`water.xml`), time cycle / weather (`timecycle_*.xml`, `visualsettings.dat`), LOD lights, occluders, navmesh/paths, scripted IPL toggles other than the time-of-day heuristic.

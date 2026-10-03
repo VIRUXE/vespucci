@@ -87,6 +87,7 @@ vespucci render --pos X,Y,Z --look X,Y,Z [options] --out frame.png
 | `--lighting basic\|none` | basic | `basic`: the game's forward-lit techniques with a preview sun and ambient. `none`: `unlit_draw` (texture × vertex colour, no lighting). |
 | `--time HH:MM` | 12:00 | Hour for time-dependent objects (`CTimeArchetypeDef` hour bits) and for picking the day/night variants of script-loaded maps. |
 | `--script-maps` | off | Also stream maps the game loads only on a script's request (mission props, reflection proxies). |
+| `--no-interiors` | off | Leave interiors out: an MLO placement then counts as a child that is not loaded, so its LOD shell stays (the state before interiors rendered; useful for A/B renders). |
 | `--max-draws N` | 20000 | Stop adding instances past this many. |
 | `--budget-mb N` | 1500 | Stop loading new models past this much geometry + texture data on the device. |
 | `--mip-skip a,b,c` | 0,1,2 | Mip levels dropped for models nearer than 100 m, nearer than 500 m, and beyond. |

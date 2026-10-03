@@ -138,6 +138,9 @@ enum Cmd {
         /// Also show maps the game loads only on a script's request
         #[arg(long)]
         script_maps: bool,
+        /// Leave interiors out: their LOD shells stay, as before interiors rendered
+        #[arg(long)]
+        no_interiors: bool,
         /// Print the model and material drawn at pixel X,Y (a second pass writes draw ids)
         #[arg(long, value_parser = parse_pixel)]
         pick: Option<(u32, u32)>,
@@ -313,6 +316,7 @@ fn main() -> Result<()> {
             exposure,
             time,
             script_maps,
+            no_interiors,
             pick,
             id_map,
             out,
@@ -334,6 +338,7 @@ fn main() -> Result<()> {
             exposure,
             &time,
             script_maps,
+            no_interiors,
             pick,
             id_map.as_deref(),
             &out,

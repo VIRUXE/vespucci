@@ -36,11 +36,11 @@ The render core is at milestone 4 of 6. What works today, all headless on Linux:
 | ✅ Game access | Keys derived from your `GTA5.exe`, every `.rpf` (nested, 92 DLC packs in load order, 389k files), story-mode vs. Online map sets from the DLC change sets |
 | ✅ Formats | Drawables (`.ydr`/`.ydd`/`.yft`), textures (`.ytd`, BC1–BC7), maps and archetypes (`.ymap`/`.ytyp`, 159k archetypes), the game's `.fxc` shader containers and DXBC reflection (696 shaders, 21k blobs, zero failures) |
 | ✅ One model | `render-model` draws any prop with the game's shader, every cbuffer and texture bound from the model's own material parameters, binding report as JSON |
-| ✅ Streamed world | `render` streams the map around a camera: LOD hierarchy, time-of-day objects, script-only maps filtered, decals and alpha in the right passes, HDR + tonemap, a draw-id picking pass for debugging (`--pick`). Vespucci Beach at 1280×720: 1,989 entities, 2,196 draws, 577 MB, 4.2 s on an RTX 3050 |
+| ✅ Streamed world | `render` streams the map around a camera: LOD hierarchy, interiors (MLO placements with their entity sets), time-of-day objects, script-only maps filtered, decals and alpha in the right passes, HDR + tonemap, a draw-id picking pass for debugging (`--pick`). Vespucci Beach at 1280×720: 1,989 entities, 2,196 draws, 577 MB, 4.2 s on an RTX 3050 |
 | 🔜 M5 | Game-lit frame: sky, time cycle and weather, deferred lighting, post-processing, matched pass by pass against RenderDoc captures of the real game |
 | 🔜 M6 | The editor: select, move/rotate/scale with gizmos, undo, object browser, save as a mod; the same operations over MCP in headless mode |
 
-Limitations you will notice in today's renders: no sky, no shadows, a constant preview sun, no water, no interiors, no vehicles, and some reflective downtown buildings render dark. [docs/rendering.md](docs/rendering.md) lists them with the plan for each.
+Limitations you will notice in today's renders: no sky, no shadows, a constant preview sun, no water, no vehicles, interiors drawn whole (no portal culling), and some reflective downtown buildings render dark. [docs/rendering.md](docs/rendering.md) lists them with the plan for each.
 
 ## Gallery
 
@@ -49,7 +49,11 @@ Limitations you will notice in today's renders: no sky, no shadows, a constant p
 | ![Vespucci Beach, Del Perro pier in the distance](docs/images/vespucci_boardwalk.png) | ![Vespucci Beach town and pier](docs/images/vespucci_beach_town.png) |
 | The beach, with the Del Perro pier and ferris wheel 500 m away (`--radius 700`) | The beach town from a rooftop: tennis courts, the pier, 2,586 streamed entities |
 
-These are preview-lit renders (M4): the geometry, LOD tree, materials, tints and cutouts are the game's; the sun, ambient and sky are placeholders until M5. What you can still spot, tracked as issues: buildings with interiors keep their LOD shell until interiors render (#19), and LOD façades are as bright as the preview ambient makes them (#2).
+These are preview-lit renders (M4): the geometry, LOD tree, interiors, materials, tints and cutouts are the game's; the sun, ambient and sky are placeholders until M5. What you can still spot, tracked as an issue: LOD façades are as bright as the preview ambient makes them (#2).
+
+![Inside the Pillbox Hill Ammu-Nation](docs/images/ammunation_interior.png)
+
+<p align="center"><sub>Inside an interior: the Pillbox Hill Ammu-Nation (<code>v_gun</code>), 177 entities placed by the MLO instance transform, drawn through the game's shaders with the preview lighting.</sub></p>
 
 ![Vinewood sign](docs/images/vinewood_sign.png)
 

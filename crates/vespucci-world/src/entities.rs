@@ -56,6 +56,21 @@ pub struct Entity {
     pub priority_level: u32,
     pub tint: u32,
     pub is_mlo_instance: bool,
+    /// `CMloInstanceDef::defaultEntitySets`: name hashes of the interior's
+    /// entity sets this placement switches on. Empty for ordinary entities.
+    pub default_entity_sets: Vec<u32>,
+}
+
+/// The world rotation behind a stored map-entity quaternion: the conjugate,
+/// since map entities (and an interior's own entities) store the inverse. A
+/// zero quaternion is left alone.
+pub fn stored_rotation_to_world(r: [f32; 4]) -> [f32; 4] {
+    let [x, y, z, w] = r;
+    if x == 0.0 && y == 0.0 && z == 0.0 {
+        r
+    } else {
+        [-x, -y, -z, w]
+    }
 }
 
 impl Entity {
@@ -67,11 +82,10 @@ impl Entity {
     /// World rotation as a quaternion (x, y, z, w). Non-MLO entities store the
     /// inverse, so this is the conjugate; MLO instances store it directly.
     pub fn orientation(&self) -> [f32; 4] {
-        let [x, y, z, w] = self.rotation;
-        if self.is_mlo_instance || (x == 0.0 && y == 0.0 && z == 0.0) {
+        if self.is_mlo_instance {
             self.rotation
         } else {
-            [-x, -y, -z, w]
+            stored_rotation_to_world(self.rotation)
         }
     }
 
@@ -142,6 +156,23 @@ pub fn parse_entities(data: &[u8]) -> Result<YmapEntities> {
                 let Some(e) = block.data.get(eoff..eoff + 128) else {
                     continue;
                 };
+                // A CMloInstanceDef is the CEntityDef plus 32 bytes: groupId,
+                // floorId, defaultEntitySets (an Array_uint at 136),
+                // numExitPortals and the instance flags.
+                let default_entity_sets = if is_mlo {
+                    block
+                        .data
+                        .get(eoff..eoff + 160)
+                        .map(|rec| {
+                            meta_array_records(&blocks, rec, 136, 4)
+                                .iter()
+                                .map(|v| u32_le(v, 0))
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
                 entities.push(Entity {
                     archetype_hash: u32_le(e, 8),
                     flags: u32_le(e, 12),
@@ -158,6 +189,7 @@ pub fn parse_entities(data: &[u8]) -> Result<YmapEntities> {
                     priority_level: u32_le(e, 92),
                     tint: u32_le(e, 120),
                     is_mlo_instance: is_mlo,
+                    default_entity_sets,
                 });
             }
         }

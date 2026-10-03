@@ -43,7 +43,7 @@ Opaque draws are grouped by model so consecutive draws share shaders, layouts an
 
 ## What the output is and is not
 
-Done: geometry placement, the game's LOD tree walked the way CodeWalker does it (parents hand over to loaded children, children drawn when handed over, streaming-extent map selection), materials and textures as the game binds them, tint palettes with the entity's tint, cutout alpha test, alpha blend/decal ordering, detail maps, time-of-day object variants, script-map filtering, power-line cables, a draw-id picking pass (`--pick`, `--id-map`). Known gaps are tracked as issues: a building with an interior keeps its LOD shell until interiors render (#19), and the brightness of LOD façades, which is the preview ambient (#2).
+Done: geometry placement, the game's LOD tree walked the way CodeWalker does it (parents hand over to loaded children, children drawn when handed over, streaming-extent map selection), interiors (an MLO placement expands into the definition's entities and its default entity sets, placed by the instance transform), shadow and reflection proxies left out, materials and textures as the game binds them, tint palettes with the entity's tint, cutout alpha test, alpha blend/decal ordering, detail maps, time-of-day object variants, script-map filtering, power-line cables, a draw-id picking pass (`--pick`, `--id-map`). Known gaps are tracked as issues: the brightness of LOD façades, which is the preview ambient (#2).
 
 Not done (these are the differences you will see against a screenshot):
 
@@ -53,7 +53,8 @@ Not done (these are the differences you will see against a screenshot):
 | Time cycle, weather, real sun/ambient/fog values | constant daylight look, no fog, no shadows | M5 (matched against RenderDoc captures) |
 | Deferred lighting path (`deferred_draw` techniques, G-buffer, lights) | forward "lightweight" look; some materials appear too dark or flat (notably downtown glass/reflective buildings) | M5 |
 | Post-processing (exposure adaptation, bloom, colour grading, FXAA) | simple ACES + gamma | M5 |
-| Water, interiors (MLO), vehicles with skeletons, car generators, LOD lights | not drawn | after M5 |
+| Water, vehicles with skeletons, car generators, LOD lights | not drawn | after M5 |
+| Interior rooms and portals | every entity of a drawn interior is drawn, whatever room the camera is in; the game hides rooms behind closed portals | after M5 |
 | Reflection and fog-ray textures | flat stand-in colour | M5 |
 | `.fxc` sampler states (filters, address modes, mip bias) | one anisotropic wrap sampler | M5 |
 

@@ -40,6 +40,7 @@ pub fn run(
     exposure: f32,
     time: &str,
     script_maps: bool,
+    no_interiors: bool,
     pick: Option<(u32, u32)>,
     id_map: Option<&Path>,
     out: &Path,
@@ -61,7 +62,7 @@ pub fn run(
             StreamOptions {
                 radius,
                 lod_scale,
-                include_mlo_instances: false,
+                include_mlo_instances: !no_interiors,
                 hour: Some(hour),
                 include_script_maps: script_maps,
             },

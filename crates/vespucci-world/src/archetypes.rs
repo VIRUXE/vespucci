@@ -1,6 +1,7 @@
 //! Every archetype the game knows, from every `.ytyp`, last archive wins.
 
 use anyhow::Result;
+use rage_formats::ytyp::MloDef;
 use rage_formats::{parse_ytyp, Archetype, Vec3};
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -57,6 +58,9 @@ impl ArchetypeRec {
 #[derive(Default)]
 pub struct ArchetypeDb {
     pub by_hash: HashMap<u32, ArchetypeRec>,
+    /// Interior definitions (`CMloArchetypeDef`) by archetype name hash: the
+    /// interior's own entities, rooms, portals and entity sets.
+    pub mlos: HashMap<u32, MloDef>,
     pub ytyps_parsed: usize,
     pub ytyps_failed: usize,
 }
@@ -74,21 +78,24 @@ impl ArchetypeDb {
             .collect();
         // `fs.files` is already in archive rank order; keep it stable for the merge.
         locs.sort_by_key(|(i, _)| *i);
-        let parsed: Vec<(u32, Result<Vec<Archetype>>)> = locs
+        let parsed: Vec<(u32, Result<(Vec<Archetype>, Vec<MloDef>)>)> = locs
             .par_iter()
             .map(|(_, loc)| {
                 let r = fs
                     .read(loc)
                     .and_then(|d| parse_ytyp(&d))
-                    .map(|y| y.archetypes);
+                    .map(|y| (y.archetypes, y.mlos));
                 (loc.stem_hash, r)
             })
             .collect();
         let mut db = ArchetypeDb::default();
         for (ytyp_hash, r) in parsed {
             match r {
-                Ok(archs) => {
+                Ok((archs, mlos)) => {
                     db.ytyps_parsed += 1;
+                    for m in mlos {
+                        db.mlos.insert(m.name_hash, m);
+                    }
                     for a in archs {
                         db.by_hash.insert(
                             a.name_hash,
@@ -116,8 +123,9 @@ impl ArchetypeDb {
             }
         }
         log::info!(
-            "{} archetypes from {} ytyps ({} failed) in {:.1} s",
+            "{} archetypes ({} interiors) from {} ytyps ({} failed) in {:.1} s",
             db.by_hash.len(),
+            db.mlos.len(),
             db.ytyps_parsed,
             db.ytyps_failed,
             t.elapsed().as_secs_f64()
@@ -127,5 +135,10 @@ impl ArchetypeDb {
 
     pub fn get(&self, name_hash: u32) -> Option<&ArchetypeRec> {
         self.by_hash.get(&name_hash)
+    }
+
+    /// The interior definition behind an MLO archetype, if its `.ytyp` had one.
+    pub fn mlo(&self, name_hash: u32) -> Option<&MloDef> {
+        self.mlos.get(&name_hash)
     }
 }

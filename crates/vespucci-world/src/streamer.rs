@@ -4,9 +4,10 @@
 //! `child_lod_dist` and [`collect`]).
 
 use crate::archetypes::{ArchetypeDb, ArchetypeRec};
-use crate::entities::{parse_entities, Entity, LodLevel};
+use crate::entities::{parse_entities, stored_rotation_to_world, Entity, LodLevel};
 use crate::ymaps::{YmapNode, YmapTree};
 use anyhow::Result;
+use rage_formats::ymap::rotate;
 use rage_formats::Vec3;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -62,7 +63,16 @@ pub struct StreamStats {
     /// Parents kept because not every child was loaded (a child map outside the radius).
     pub children_missing: usize,
     pub unknown_archetype: usize,
+    /// Interior placements left out because `include_mlo_instances` is off.
     pub mlo_skipped: usize,
+    /// Interior placements drawn, and the entities they contributed.
+    pub mlo_instances: usize,
+    pub mlo_entities: usize,
+    /// Interior placements whose archetype has no `CMloArchetypeDef`.
+    pub mlo_without_def: usize,
+    /// Shadow and reflection proxies, which the game draws only into its
+    /// shadow and reflection maps (see [`is_proxy`]).
+    pub proxies_skipped: usize,
     pub time_hidden: usize,
     pub script_maps_skipped: usize,
     pub lod_dist_from_archetype: usize,
@@ -88,6 +98,50 @@ pub fn child_lod_dist(e: &Entity, lod_dist: f32) -> f32 {
     } else {
         e.child_lod_dist
     }
+}
+
+/// Whether an entity is a shadow or reflection proxy: stand-in geometry the
+/// game draws only into its shadow map or reflection map, never into the
+/// frame. CodeWalker's `RenderIsEntityFinalRender`: archetype `flags` bit 11
+/// (2048) marks shadow proxies, and these exact `CEntityDef::flags` values
+/// mark the reflection proxies it has catalogued (golf-course and house
+/// water proxies, tree and tunnel reflection proxies, mirror-only emissives,
+/// interior reflection shells such as `v_7_gc_reflectproxy`).
+pub fn is_proxy(entity_flags: u32, archetype_flags: u32) -> bool {
+    archetype_flags & 2048 != 0
+        || matches!(
+            entity_flags,
+            135_790_592 | 135_790_593 | 672_661_504 | 536_870_912 | 35_127_296 | 39_321_602
+        )
+}
+
+/// Where an interior's entity ends up: its MLO-local position rotated by the
+/// instance and moved to it, and its rotation composed with the instance's
+/// (the local rotation first, then the instance's), which is CodeWalker's
+/// `MloInstanceData::UpdateEntity`.
+pub fn interior_world(
+    instance_pos: Vec3,
+    instance_rot: [f32; 4],
+    local_pos: Vec3,
+    local_rot: [f32; 4],
+) -> (Vec3, [f32; 4]) {
+    (
+        rotate(local_pos, instance_rot) + instance_pos,
+        quat_mul(instance_rot, local_rot),
+    )
+}
+
+/// Hamilton product `a ⊗ b` of two (x, y, z, w) quaternions: rotating by the
+/// result applies `b` first, then `a`.
+fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    let [ax, ay, az, aw] = a;
+    let [bx, by, bz, bw] = b;
+    [
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+    ]
 }
 
 /// The time-of-day suffix of a map name (`vb_29_day` -> `day`), ignoring a trailing `_lod`.
@@ -288,8 +342,8 @@ impl Walk<'_> {
         let d = dist(e.position, self.camera);
         let lod = lod_dist(e, a);
         let kids = &tree.children[k.0][k.1];
-        // Children Vespucci cannot draw (interior instances while interiors are not
-        // rendered, entities without an archetype) count as not loaded: the game only
+        // Children Vespucci cannot draw (interior instances when interiors are left
+        // out, entities without an archetype) count as not loaded: the game only
         // hides this parent because it draws them. Time-hidden children do count; the
         // game hides those without bringing the parent back.
         let loaded = kids
@@ -340,6 +394,7 @@ impl Walk<'_> {
             _ => "leaf",
         };
         match self.emit(tree, k, e, a, d, lod) {
+            Ok(()) if e.is_mlo_instance => self.trace(tree, k, d, lod, "interior"),
             Ok(()) => self.trace(tree, k, d, lod, kind),
             Err(why) => self.trace(tree, k, d, lod, &format!("{kind}, not drawn: {why}")),
         }
@@ -355,9 +410,12 @@ impl Walk<'_> {
         d: f32,
         lod: f32,
     ) -> Result<(), &'static str> {
-        if e.is_mlo_instance && !self.opts.include_mlo_instances {
-            self.stats.mlo_skipped += 1;
-            return Err("interior instance");
+        if e.is_mlo_instance {
+            if !self.opts.include_mlo_instances {
+                self.stats.mlo_skipped += 1;
+                return Err("interior instance");
+            }
+            return self.emit_interior(tree, k, e);
         }
         let Some(a) = a else {
             self.stats.unknown_archetype += 1;
@@ -365,6 +423,10 @@ impl Walk<'_> {
         };
         if e.lod_dist <= 0.0 {
             self.stats.lod_dist_from_archetype += 1;
+        }
+        if is_proxy(e.flags, a.flags) {
+            self.stats.proxies_skipped += 1;
+            return Err("shadow/reflection proxy");
         }
         if let (Some(h), Some(t)) = (self.opts.hour, a.time_flags) {
             if (t >> (h % 24)) & 1 == 0 {
@@ -385,6 +447,67 @@ impl Walk<'_> {
             ymap: tree.maps[k.0].file,
             flags: e.flags,
         });
+        Ok(())
+    }
+
+    /// An interior placement: the MLO's own entities plus those of the entity
+    /// sets the placement switches on, moved into world space by the instance
+    /// transform. They are all drawn while the instance is (CodeWalker's rule;
+    /// the game also culls them by room and portal, which is not done yet).
+    fn emit_interior(&mut self, tree: &LodTree, k: Key, e: &Entity) -> Result<(), &'static str> {
+        let db = self.db;
+        let Some(def) = db.mlo(e.archetype_hash) else {
+            self.stats.mlo_without_def += 1;
+            return Err("interior without a definition");
+        };
+        self.stats.mlo_instances += 1;
+        let instance_rot = e.orientation();
+        let ymap = tree.maps[k.0].file;
+        let sets = def
+            .entity_sets
+            .iter()
+            .filter(|s| e.default_entity_sets.contains(&s.name_hash))
+            .flat_map(|s| s.entities.iter());
+        for ie in def.entities.iter().chain(sets) {
+            let Some(a) = db.get(ie.archetype_hash) else {
+                self.stats.unknown_archetype += 1;
+                continue;
+            };
+            if is_proxy(ie.flags, a.flags) {
+                self.stats.proxies_skipped += 1;
+                continue;
+            }
+            if let (Some(h), Some(t)) = (self.opts.hour, a.time_flags) {
+                if (t >> (h % 24)) & 1 == 0 {
+                    self.stats.time_hidden += 1;
+                    continue;
+                }
+            }
+            let (position, orientation) = interior_world(
+                e.position,
+                instance_rot,
+                ie.position,
+                stored_rotation_to_world(ie.rotation),
+            );
+            self.out.push(Instance {
+                archetype: ie.archetype_hash,
+                position,
+                orientation,
+                scale_xy: ie.scale_xy,
+                scale_z: ie.scale_z,
+                distance: dist(position, self.camera),
+                lod_level: LodLevel::Hd,
+                lod_dist: if ie.lod_dist > 0.0 {
+                    ie.lod_dist
+                } else {
+                    a.lod_dist
+                },
+                tint: ie.tint,
+                ymap,
+                flags: ie.flags,
+            });
+            self.stats.mlo_entities += 1;
+        }
         Ok(())
     }
 }
@@ -602,4 +725,42 @@ pub fn collect(
 fn dist(a: Vec3, b: Vec3) -> f32 {
     let (dx, dy, dz) = (a.x - b.x, a.y - b.y, a.z - b.z);
     (dx * dx + dy * dy + dz * dz).sqrt()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn near(a: Vec3, x: f32, y: f32, z: f32) -> bool {
+        (a.x - x).abs() < 1e-4 && (a.y - y).abs() < 1e-4 && (a.z - z).abs() < 1e-4
+    }
+
+    /// An interior entity sits where the instance's rotation and position put
+    /// its MLO-local placement, and its own rotation is applied before the
+    /// instance's (issue #19).
+    #[test]
+    fn interior_entities_follow_the_instance_transform() {
+        let h = std::f32::consts::FRAC_1_SQRT_2;
+        let quarter_z = [0.0, 0.0, h, h];
+        let quarter_x = [h, 0.0, 0.0, h];
+        let identity = [0.0, 0.0, 0.0, 1.0];
+        let (p, r) = interior_world(
+            Vec3::new(10.0, 0.0, 5.0),
+            quarter_z,
+            Vec3::new(1.0, 0.0, 0.0),
+            identity,
+        );
+        assert!(near(p, 10.0, 1.0, 5.0), "{p:?}");
+        assert!(near(rotate(Vec3::new(1.0, 0.0, 0.0), r), 0.0, 1.0, 0.0));
+        // Local first (a quarter turn about X leaves +X alone), then the instance's
+        // quarter turn about Z: +X ends up at +Y, not at +Z.
+        let (_, r) = interior_world(
+            Vec3::new(0.0, 0.0, 0.0),
+            quarter_z,
+            Vec3::new(0.0, 0.0, 0.0),
+            quarter_x,
+        );
+        assert!(near(rotate(Vec3::new(1.0, 0.0, 0.0), r), 0.0, 1.0, 0.0));
+        assert!(near(rotate(Vec3::new(0.0, 1.0, 0.0), r), 0.0, 0.0, 1.0));
+    }
 }
