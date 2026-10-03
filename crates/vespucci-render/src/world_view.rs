@@ -15,7 +15,7 @@ use std::rc::Rc;
 use vespucci_d3d11::ffi::*;
 use vespucci_d3d11::{ComPtr, Device, Stage};
 use vespucci_game::GameFs;
-use vespucci_world::{ArchetypeDb, Instance, TxdParents};
+use vespucci_world::{ArchetypeDb, ArchetypeRec, Instance, TxdParents};
 
 /// Pixel shader that writes a draw id (picking pass); pairs with any game vertex shader.
 const ID_PS: &[u8] = include_bytes!("../../../shaders/id/id.ps.dxbc");
@@ -94,7 +94,7 @@ struct Ctx<'a> {
     textures: TextureCache,
     layouts: LayoutCache,
     ytds: HashMap<u32, Rc<Vec<YtdTexture>>>,
-    models: HashMap<(u32, u32), Option<Rc<std::cell::RefCell<GpuModel>>>>,
+    models: HashMap<ModelKey, Option<Rc<std::cell::RefCell<GpuModel>>>>,
     lighting: Lighting,
     report: WorldReport,
 }
@@ -102,6 +102,21 @@ struct Ctx<'a> {
 /// Dictionaries every model may draw on, after its own: the shared detail
 /// normal maps (`env_bark`, ...) and the vehicle sheet.
 const GLOBAL_TXDS: [&str; 2] = ["mapdetail", "vehshare"];
+
+/// What a [`GpuModel`] depends on: (extension hash, file hash, entry hash
+/// inside a drawable dictionary, texture dictionary hash).
+type ModelKey = (u32, u32, u32, u32);
+
+/// The cache key of an archetype's GPU model. The entry matters because every
+/// LOD piece of an area lives in one `*_slod_children.ydd` (issue #11: keyed by
+/// file alone, the Vinewood summit drew its concrete pad at the hut, dish and
+/// tower positions); the texture dictionary matters because the materials bind
+/// textures found through the archetype's dictionary chain.
+fn model_key(a: &ArchetypeRec) -> ModelKey {
+    let (ext, hash) = a.model_file();
+    let entry = if ext == "ydd" { a.asset_name_hash } else { 0 };
+    (vespucci_game::joaat(ext), hash, entry, a.texture_dict_hash)
+}
 
 /// Technique names to try, best first, for a render bucket. Cutout (3) wants
 /// the alpha-tested variants; everything else the plain forward ones.
@@ -174,7 +189,7 @@ impl Ctx<'_> {
     fn model(&mut self, archetype: u32, mip_skip: u8) -> Option<Rc<std::cell::RefCell<GpuModel>>> {
         let a = self.db.get(archetype)?;
         let (ext, hash) = a.model_file();
-        let key = (vespucci_game::joaat(ext), hash);
+        let key = model_key(a);
         if let Some(m) = self.models.get(&key) {
             return m.clone();
         }
@@ -821,4 +836,48 @@ pub fn render_world(
         log::warn!("{bad} pixels were NaN or infinite (shown magenta)");
     }
     Ok((pixels, ctx.report))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rage_formats::Archetype;
+
+    fn archetype(asset_type: u32, name: u32, asset: u32, dict: u32, txd: u32) -> ArchetypeRec {
+        ArchetypeRec {
+            name_hash: name,
+            bb_min: rage_formats::Vec3::new(-1.0, -1.0, -1.0),
+            bb_max: rage_formats::Vec3::new(1.0, 1.0, 1.0),
+            lod_dist: 100.0,
+            texture_dict_hash: txd,
+            drawable_dictionary_hash: dict,
+            asset_name_hash: asset,
+            asset_type,
+            is_mlo: false,
+            flags: 0,
+            time_flags: None,
+            ytyp_hash: 0,
+        }
+    }
+
+    /// Issue #11: the four LOD pieces of the Vinewood summit live in one
+    /// `.ydd`; each archetype must get its own entry, not the first one loaded.
+    #[test]
+    fn dictionary_entries_get_their_own_model() {
+        let dict = Archetype::ASSET_TYPE_DRAWABLEDICTIONARY;
+        let pad = archetype(dict, 1, 0x460d_9593, 0x1c13_09fb, 0x7a94_cc5c);
+        let hut = archetype(dict, 2, 0x475c_fa71, 0x1c13_09fb, 0x7a94_cc5c);
+        assert_ne!(model_key(&pad), model_key(&hut));
+        assert_eq!(model_key(&pad), model_key(&pad.clone()));
+    }
+
+    /// Two archetypes sharing one drawable but naming different texture
+    /// dictionaries bind different textures, so they are different GPU models.
+    #[test]
+    fn texture_dictionary_is_part_of_the_key() {
+        let drawable = Archetype::ASSET_TYPE_DRAWABLE;
+        let a = archetype(drawable, 1, 0x1234_5678, 0, 0x1111_1111);
+        let b = archetype(drawable, 2, 0x1234_5678, 0, 0x2222_2222);
+        assert_ne!(model_key(&a), model_key(&b));
+    }
 }

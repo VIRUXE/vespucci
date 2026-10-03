@@ -1,10 +1,11 @@
-//! `index` and `probe`: the world's data without a GPU.
+//! `index`, `probe` and `cover`: the world's data without a GPU.
 
 use anyhow::Result;
 use std::collections::BTreeMap;
 use vespucci_game::GameFs;
 use vespucci_world::{
-    parse_entities, ArchetypeDb, LodLevel, MapSet, Mode, Vec3, YmapNode, YmapTree,
+    child_lod_dist, lod_dist, parse_entities, ArchetypeDb, LodLevel, MapSet, Mode, Vec3, YmapNode,
+    YmapTree,
 };
 
 pub fn index(fs: &GameFs, mode: Mode) -> Result<()> {
@@ -114,6 +115,117 @@ pub fn probe(fs: &GameFs, mode: Mode, pos: Vec3, radius: f32, json: bool) -> Res
         );
     }
     println!("{total_entities} entities, {cargens} car generators, {unknown_archetypes} with unknown archetypes; {} distinct models, {:.1} MB of model data", models_seen.len(), model_bytes as f64 / 1048576.0);
+    Ok(())
+}
+
+/// Which entities cover a point: every entity, in every map of the set, whose
+/// world-space bounding box (the archetype's box through the entity's
+/// transform) contains `at` grown by `margin`, with the LOD fields the
+/// streaming rule reads. Answers "what should be drawn here?" without a camera.
+pub fn cover(fs: &GameFs, mode: Mode, at: Vec3, margin: f32) -> Result<()> {
+    let set = MapSet::build(fs, mode)?;
+    let db = ArchetypeDb::build(fs)?;
+    let tree = YmapTree::build(fs, &set)?;
+    let inside = |min: Vec3, max: Vec3, m: f32| {
+        at.x >= min.x - m
+            && at.x <= max.x + m
+            && at.y >= min.y - m
+            && at.y <= max.y + m
+            && at.z >= min.z - m
+            && at.z <= max.z + m
+    };
+    // Only maps whose entity extents reach the point can hold such an entity.
+    let maps: Vec<&YmapNode> = tree
+        .nodes
+        .iter()
+        .filter(|n| inside(n.entities_min, n.entities_max, margin + 1.0))
+        .collect();
+    let mut rows = Vec::new();
+    for n in &maps {
+        let loc = &fs.files[n.file as usize];
+        let parsed = match fs.read(loc).and_then(|d| parse_entities(&d)) {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!("{}: {e:#}", loc.name);
+                continue;
+            }
+        };
+        for (i, e) in parsed.entities.iter().enumerate() {
+            let Some(a) = db.get(e.archetype_hash) else {
+                continue;
+            };
+            let (mut min, mut max) = ([f32::MAX; 3], [f32::MIN; 3]);
+            for k in 0..8 {
+                let corner = Vec3::new(
+                    if k & 1 == 0 { a.bb_min.x } else { a.bb_max.x },
+                    if k & 2 == 0 { a.bb_min.y } else { a.bb_max.y },
+                    if k & 4 == 0 { a.bb_min.z } else { a.bb_max.z },
+                );
+                let w = e.to_world(corner);
+                for (j, v) in [w.x, w.y, w.z].into_iter().enumerate() {
+                    min[j] = min[j].min(v);
+                    max[j] = max[j].max(v);
+                }
+            }
+            let (bmin, bmax) = (
+                Vec3::new(min[0], min[1], min[2]),
+                Vec3::new(max[0], max[1], max[2]),
+            );
+            if !inside(bmin, bmax, margin) {
+                continue;
+            }
+            let (ext, h) = a.model_file();
+            let model = fs
+                .by_hash(ext, h)
+                .map(|l| l.name.clone())
+                .unwrap_or_else(|| format!("{h:#010x}.{ext}"));
+            let lod = lod_dist(e, Some(a));
+            let size = (bmax.x - bmin.x) * (bmax.y - bmin.y) * (bmax.z - bmin.z);
+            rows.push((
+                size,
+                loc.name.clone(),
+                parsed.flags,
+                i,
+                model,
+                e.clone(),
+                lod,
+                bmin,
+                bmax,
+            ));
+        }
+    }
+    // Largest boxes first: terrain and buildings before the props on them.
+    rows.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    println!(
+        "{} entities in {} maps cover ({}, {}, {}) within {margin} m:",
+        rows.len(),
+        maps.len(),
+        at.x,
+        at.y,
+        at.z
+    );
+    for (_, map, map_flags, i, model, e, lod, bmin, bmax) in &rows {
+        println!(
+            "{map}{} #{i} {model} {} lodDist={lod:.0}{} childLodDist={:.0} parent={}{} children={} flags={:#x} pos=({:.0},{:.0},{:.0}) box=({:.0},{:.0},{:.0})..({:.0},{:.0},{:.0})",
+            if map_flags & 1 != 0 { "(script)" } else { "" },
+            level_name(e.lod_level),
+            if e.lod_dist > 0.0 { "" } else { "(arch)" },
+            child_lod_dist(e, *lod),
+            e.parent_index,
+            if e.lod_in_parent_ymap() { "(parent map)" } else { "" },
+            e.num_children,
+            e.flags,
+            e.position.x,
+            e.position.y,
+            e.position.z,
+            bmin.x,
+            bmin.y,
+            bmin.z,
+            bmax.x,
+            bmax.y,
+            bmax.z,
+        );
+    }
     Ok(())
 }
 

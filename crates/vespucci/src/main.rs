@@ -90,6 +90,15 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Which entities cover a point: every entity whose world-space bounding box contains it, with its LOD fields.
+    Cover {
+        /// The point X,Y,Z
+        #[arg(long, value_parser = parse_vec3)]
+        at: (f32, f32, f32),
+        /// Grow every box by this much before testing
+        #[arg(long, default_value_t = 0.0)]
+        margin: f32,
+    },
     /// Draw the world from a camera position with the game's own shaders to a PNG.
     Render {
         /// Camera position X,Y,Z
@@ -282,6 +291,12 @@ fn main() -> Result<()> {
             vespucci_world::Vec3::new(pos.0, pos.1, pos.2),
             radius,
             json,
+        ),
+        Cmd::Cover { at, margin } => world::cover(
+            &files::open(game()?)?,
+            mode,
+            vespucci_world::Vec3::new(at.0, at.1, at.2),
+            margin,
         ),
         Cmd::Render {
             pos,
