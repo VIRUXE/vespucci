@@ -16,7 +16,7 @@ camera ──► streamer (maps in radius → entities → LOD rule → instance
 
 ### Streaming and budgets
 
-`collect()` reads every ymap whose entity extents touch the sphere `--radius` around the camera (default 300 m) and every ymap whose streaming extents contain the camera (what the game itself would have loaded), plus their ancestors. Maps are parsed in parallel and linked into the LOD tree; the rule in [formats.md](formats.md), walked from the roots, decides which entities are drawn; the result is sorted by distance so that, when a budget is hit, the nearest things are the ones drawn. Three limits apply while loading: `--max-draws` (instances), `--budget-mb` (geometry + texture bytes uploaded) and `--mip-skip` (top mip levels dropped at <100 m, <500 m and beyond). Models and texture dictionaries are cached per render by hash, so a prop used 200 times is loaded once.
+`collect()` reads every ymap whose entity extents touch the sphere `--radius` around the camera (default 300 m) and every ymap whose streaming extents contain the camera (what the game itself would have loaded), plus their ancestors. Maps are parsed in parallel and linked into the LOD tree; the rule in [formats.md](formats.md), walked from the roots, decides which entities are drawn; the result is sorted by distance so that, when a budget is hit, the nearest things are the ones drawn. Three limits apply while loading: `--max-draws` (instances), `--budget-mb` (geometry + texture bytes uploaded) and `--mip-skip` (top mip levels dropped at <100 m, <500 m and beyond). Models are cached per render by file, dictionary entry and texture dictionary (a prop used 200 times is loaded once; each entry of a `*_slod_children.ydd` is its own model, and two archetypes sharing a drawable but not a texture dictionary get separate materials), texture dictionaries by hash.
 
 ### Materials
 
@@ -43,7 +43,7 @@ Opaque draws are grouped by model so consecutive draws share shaders, layouts an
 
 ## What the output is and is not
 
-Done: geometry placement, the game's LOD tree walked the way CodeWalker does it (parents hand over to loaded children, children drawn when handed over, streaming-extent map selection), materials and textures as the game binds them, tint palettes with the entity's tint, cutout alpha test, alpha blend/decal ordering, detail maps, time-of-day object variants, script-map filtering, power-line cables, a draw-id picking pass (`--pick`, `--id-map`). Known gaps are tracked as issues: a building with an interior keeps its LOD shell until interiors render (#19), distant SLOD pieces without terrain under them (#11), and the brightness of LOD façades, which is the preview ambient (#2).
+Done: geometry placement, the game's LOD tree walked the way CodeWalker does it (parents hand over to loaded children, children drawn when handed over, streaming-extent map selection), materials and textures as the game binds them, tint palettes with the entity's tint, cutout alpha test, alpha blend/decal ordering, detail maps, time-of-day object variants, script-map filtering, power-line cables, a draw-id picking pass (`--pick`, `--id-map`). Known gaps are tracked as issues: a building with an interior keeps its LOD shell until interiors render (#19), and the brightness of LOD façades, which is the preview ambient (#2).
 
 Not done (these are the differences you will see against a screenshot):
 
@@ -56,7 +56,6 @@ Not done (these are the differences you will see against a screenshot):
 | Water, interiors (MLO), vehicles with skeletons, car generators, LOD lights | not drawn | after M5 |
 | Reflection and fog-ray textures | flat stand-in colour | M5 |
 | `.fxc` sampler states (filters, address modes, mip bias) | one anisotropic wrap sampler | M5 |
-| Far LOD coverage | distant SLOD pieces can appear to float when the LOD that should sit under them is in a map outside `--radius` or is hidden by a different distance band | streaming by LOD level |
 
 ## Performance notes (lavapipe, 2-core Haswell)
 

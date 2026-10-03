@@ -64,6 +64,14 @@ vespucci probe --pos X,Y,Z [--radius 300] [--json]
 
 No GPU. Lists the ymaps whose entity extents touch the sphere, with entity counts per LOD level and content flags, plus the total model data they reference. Use it to understand what `render` will load at a spot, or to find map names for a region.
 
+## `cover` — which entities cover a point
+
+```
+vespucci cover --at X,Y,Z [--margin 0]
+```
+
+No GPU. Lists every entity, in every map of the selected set, whose world-space bounding box (the archetype's box through the entity's position, rotation and scale) contains the point, grown by `--margin` metres. Each line gives the map (with `(script)` for script-requested maps), the entity index, the model file, the LOD level, `lodDist` (with `(arch)` when it comes from the archetype), `childLodDist`, the parent index (with `(parent map)` when `flags` bit 3 puts the parent in the parent map), the number of children, the flags, the position and the box, largest boxes first. It answers "what should be drawn here, and what are its LOD parents?"; the `#index` and map match the entity trace (`VESPUCCI_TRACE_ENTITY`, see [debugging.md](debugging.md)), so an object can be followed from the data to the walk's decision about it.
+
 ## `render` — draw the world
 
 ```

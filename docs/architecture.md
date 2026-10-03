@@ -72,7 +72,7 @@ GTA V ships its shaders compiled: each `.fxc` ("rgxe") container holds, per shad
 
 ### `vespucci` — the command line
 
-One subcommand per file: `doctor`, `ls`/`cat`/`find` (VFS), `index`/`probe` (world), `shader`, `texture`, `compare`, `render-model`, `render`. See [cli.md](cli.md). `files.rs` opens the game and reports peak RSS. The MCP server and the desktop shell (milestone M6) will be additional front ends over the same crates.
+One subcommand per file: `doctor`, `ls`/`cat`/`find` (VFS), `index`/`probe`/`cover` (world), `shader`, `texture`, `compare`, `render-model`, `render`. See [cli.md](cli.md). `files.rs` opens the game and reports peak RSS. The MCP server and the desktop shell (milestone M6) will be additional front ends over the same crates.
 
 ### `third_party/rage-formats` — vendored parser crate
 
