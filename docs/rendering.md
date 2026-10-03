@@ -39,7 +39,7 @@ Reversed-Z (near = 1, far = 0) in a 32-bit float depth buffer keeps coplanar dec
 
 ### Passes and ordering
 
-Opaque draws are grouped by model so consecutive draws share shaders, layouts and textures (lavapipe compiles a pipeline per unique state, and state changes are the main cost). Decals follow with blending and depth-test-only; alpha surfaces last, far to near by instance distance.
+Opaque draws are grouped by model so consecutive draws share shaders, layouts and textures (lavapipe compiles a pipeline per unique state, and state changes are the main cost), in the order of the models' cache keys. Decals follow with blending and depth-test-only; alpha surfaces last, far to near by instance distance. Every ordering is a function of the data (the ymap tree is sorted by name, instance ties break by archetype and position), so a frame is bit-exact between runs on the same GPU (#14).
 
 ## What the output is and is not
 

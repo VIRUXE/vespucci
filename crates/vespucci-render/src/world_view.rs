@@ -82,6 +82,9 @@ struct GpuModel {
     materials: Vec<Option<Material>>,
     lods: HashMap<u8, Rc<GpuLod>>,
     bytes: usize,
+    /// The cache key, which also orders the opaque draws (stable between
+    /// runs, unlike the model's address; issue #14).
+    key: ModelKey,
 }
 
 struct Ctx<'a> {
@@ -195,7 +198,8 @@ impl Ctx<'_> {
         }
         let built = self.load_model(archetype, ext, hash, a.asset_name_hash, mip_skip);
         let entry = match built {
-            Ok(m) => {
+            Ok(mut m) => {
+                m.key = key;
                 self.report.models_loaded += 1;
                 Some(Rc::new(std::cell::RefCell::new(m)))
             }
@@ -317,6 +321,7 @@ impl Ctx<'_> {
             materials,
             lods: HashMap::new(),
             bytes: 0,
+            key: (0, 0, 0, 0),
         })
     }
 
@@ -623,8 +628,10 @@ pub fn render_world(
     ctx.report.texture_bytes = ctx.textures.uploaded_bytes;
 
     // One entry per geometry, keyed for the pass order: opaque grouped by model
-    // (fewer pipeline changes), then decals, then alpha far-to-near.
-    let mut items: Vec<(Pass, u64, usize, usize)> = Vec::new();
+    // (fewer pipeline changes) in the order of the models' cache keys, then
+    // decals, then alpha far-to-near. Every key is a function of the data, so
+    // two runs draw in the same order and produce the same pixels (#14).
+    let mut items: Vec<(Pass, [u32; 4], usize, usize)> = Vec::new();
     for (di, d) in draws.iter().enumerate() {
         let model = d.model.borrow();
         for (gi, g) in d.lod.geos.iter().enumerate() {
@@ -633,8 +640,8 @@ pub fn render_world(
             };
             let pass = pass_of(material.bucket);
             let key = match pass {
-                Pass::Alpha => (u32::MAX - d.distance.to_bits()) as u64,
-                _ => Rc::as_ptr(&d.model) as usize as u64,
+                Pass::Alpha => [u32::MAX - d.distance.to_bits(), 0, 0, 0],
+                _ => [model.key.0, model.key.1, model.key.2, model.key.3],
             };
             items.push((pass, key, di, gi));
         }

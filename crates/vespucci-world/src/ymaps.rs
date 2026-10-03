@@ -157,6 +157,9 @@ impl YmapTree {
             }
         }
 
+        // The maps came out of a hash map; a fixed order keeps every later
+        // step (working set, instance list, draw order) the same between runs.
+        tree.nodes.sort_by_key(|n| n.name_hash);
         for (i, n) in tree.nodes.iter().enumerate() {
             tree.by_hash.insert(n.name_hash, i as u32);
         }

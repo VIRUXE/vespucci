@@ -714,10 +714,16 @@ pub fn collect(
         mut stats, mut out, ..
     } = walk;
     stats.instances = out.len();
+    // Nearest first; ties broken by data, never by the order the maps were
+    // read in, so the list is the same from run to run (#14).
     out.sort_by(|a, b| {
         a.distance
             .partial_cmp(&b.distance)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.archetype.cmp(&b.archetype))
+            .then(a.position.x.to_bits().cmp(&b.position.x.to_bits()))
+            .then(a.position.y.to_bits().cmp(&b.position.y.to_bits()))
+            .then(a.position.z.to_bits().cmp(&b.position.z.to_bits()))
     });
     Ok((out, stats))
 }

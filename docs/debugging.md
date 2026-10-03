@@ -47,7 +47,7 @@ Log levels: `--log debug` explains every skipped map (script flags, time variant
 
 ## Regression tests
 
-`scripts/golden.sh` renders three props and two world scenes and compares them with `tests/golden/*.png` by PSNR (`vespucci compare`). Run it after any change in `vespucci-render` or the vendored parser; use `--update` only for intentional changes, and look at the before/after images.
+`scripts/golden.sh` renders four props and two world scenes and compares them with `tests/golden/*.png` by PSNR (`vespucci compare`). Renders are bit-exact between runs on one GPU, so on the GPU the goldens were frozen on (an RTX 3050) any difference is a real change; on lavapipe or another GPU run with `WORLD_PSNR=30 MODEL_PSNR=30`. Run it after any change in `vespucci-render`, `vespucci-world` or the vendored parser; use `--update` only for intentional changes, and look at the before/after images.
 
 ## Reading the report
 

@@ -73,11 +73,11 @@ To use a real GPU instead of lavapipe, export `VK_DRIVER_FILES` for its ICD (or 
 ```sh
 cargo test --release -p vespucci-game -p vespucci-fxc -p vespucci-world   # no game needed (game-file tests skip)
 VESPUCCI_GAME=$GTAV_PATH cargo test --release                            # includes game-file tests
-scripts/golden.sh            # renders tests/golden/*.png and compares (PSNR >= 40 models, >= 35 world)
+scripts/golden.sh            # renders tests/golden/*.png and compares (PSNR >= 45 dB by default)
 scripts/golden.sh --update   # re-freeze after an intentional rendering change
 ```
 
-The goldens are hardware renders (see the Windows section); on lavapipe pass `WORLD_PSNR=30 MODEL_PSNR=30`. World renders group draws by model address and can differ by a few decal pixels between runs (~60 dB), which the threshold allows.
+The goldens are hardware renders (see the Windows section). Renders are bit-exact between runs on one GPU (the draw order is a function of the data, #14), so on the GPU they were frozen on any difference is a real change; on lavapipe or another GPU pass `WORLD_PSNR=30 MODEL_PSNR=30`.
 
 ## Windows
 

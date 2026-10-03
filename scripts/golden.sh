@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Renders the golden models and compares them with the frozen images (PSNR >= 40 dB).
+# Renders the golden models and compares them with the frozen images (PSNR >= 45 dB).
 # Usage: scripts/golden.sh [--update]     (needs GTAV_PATH and a release build)
-# The goldens are lavapipe renders. A hardware GPU filters differently and lands
-# around 31-35 dB on the world scenes and thin cutout props; run with WORLD_PSNR=30 MODEL_PSNR=30 there (Git Bash works).
+# The goldens were frozen on an RTX 3050 (2026-10-03). Renders are bit-exact between
+# runs on one GPU, so on that GPU every difference is a real change (PSNR inf when
+# nothing changed). lavapipe or another GPU filters differently and lands around
+# 31-35 dB on the world scenes and thin cutout props: run with WORLD_PSNR=30 MODEL_PSNR=30 there (Git Bash works).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 V=./target/release/vespucci
-WORLD_PSNR=${WORLD_PSNR:-35}
-MODEL_PSNR=${MODEL_PSNR:-40}
+WORLD_PSNR=${WORLD_PSNR:-45}
+MODEL_PSNR=${MODEL_PSNR:-45}
 OUT=tests/out/golden; mkdir -p "$OUT"
 render() { local model=$1 technique=$2 out=$3; shift 3; $V --log warn render-model "$model" --technique "$technique" --out "$out" "$@" >/dev/null; }
 # model, technique, extra render-model arguments
@@ -17,7 +19,7 @@ declare -A CASES=(
   [barrier_lit]="prop_barrier_work05 lightweightHighQuality0_draw"
   [ladder_tnt]="vb_30_ladder_05 lightweightHighQuality0_draw --ytd vbblockgroup1a --size 1024x1024"
 )
-# World renders (M4): camera position, look-at. Compared at PSNR >= 35 dB.
+# World renders (M4): camera position, look-at.
 declare -A WORLD=(
   [world_beach]="-1280,-1450,4 -1200,-1500,4"
   [world_legion]="195,-934,30 230,-900,28"

@@ -96,7 +96,7 @@ Numbers for the Vespucci Beach exit test (1280×720): 964 instances streamed, 61
 - **Retail files only.** Formats are implemented from the files themselves and from public research. The archive keys are derived from the user's executable at first run and never shipped.
 - **Verified facts live in `docs/`.** Shader-binding and format knowledge was established empirically (disassembly with `vkd3d-compiler`, bisecting with the debug switches) and is written down with how it was verified, so the next contributor does not re-derive it.
 - **Everything in RAM, budgeted.** Lavapipe keeps GPU resources in system memory, so the streamer has byte budgets, per-distance mip trimming and draw limits rather than relying on GPU memory.
-- **Determinism for tests.** lavapipe is deterministic; renders are frozen as golden PNGs and compared by PSNR in `scripts/golden.sh`.
+- **Determinism for tests.** Every ordering in the pipeline is a function of the data (sorted ymap tree, tie-broken instance list, draw order by model key), so a frame is bit-exact between runs on one GPU; renders are frozen as golden PNGs and compared by PSNR in `scripts/golden.sh` (exact on the GPU they were frozen on, within a few dB on another or on lavapipe).
 
 ## Conventions
 
